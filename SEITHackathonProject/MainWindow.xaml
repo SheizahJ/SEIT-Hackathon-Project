@@ -30,12 +30,18 @@
                 <Setter Property="BorderThickness" Value="0"/>
             </Style.Setters>
         </Style>
+        <Style TargetType="ListViewItem">
+            <Style.Setters>
+                <Setter Property="Background" Value="#FFD1D0D0"/>
+                <Setter Property="Height" Value="60"/>
+            </Style.Setters>
+        </Style>
     </Window.Resources>
 
     <Grid>
         <gmaps:GMapControl x:Name="mapView" Loaded="mapView_Loaded" />
 
-        <Grid Name="Alert"  Margin="10,10,10,570" Background="#FFE6A71C">
+        <Grid Name="Alert"  Margin="10,10,10,570" Panel.ZIndex="2" Background="#FFE6A71C">
             <Grid.RowDefinitions>
                 <RowDefinition Height="25*" />
                 <RowDefinition Height="30*" />
@@ -52,7 +58,7 @@
             </Grid>
         </Grid>
 
-        <GroupBox Name="RouteInfoBox" Height="530" RenderTransformOrigin="0.5,1">
+        <GroupBox Name="RouteInfoBox" Height="530" RenderTransformOrigin="0.5,1" Panel.ZIndex="2">
             <GroupBox.RenderTransform>
                 <TransformGroup>
                     <TranslateTransform x:Name="RouteInfoTranslation" X="0" Y="80"/>
@@ -65,7 +71,7 @@
                 </Grid.RowDefinitions>
 
                 <Grid Grid.Row="0">
-                    <Button Name="InfoShowBar" Background="{x:Null}" Foreground="{x:Null}" BorderBrush="#FF393939" Click="InfoShowBar_Click" />
+                    <Button Name="InfoShowBar" Background="{x:Null}" Foreground="{x:Null}" BorderBrush="#FF393939" Panel.ZIndex="2" Click="InfoShowBar_Click" />
                     <Rectangle Width="150" Height="5" Fill="#FFAEAEAE" />
                 </Grid>
 
@@ -107,7 +113,7 @@
                                     <ScrollViewer VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
                                         <ListView Name="CurrentRouteInfo">
                                             <ListViewItem>
-                                                
+                                                <Label Height="30">hi</Label>
                                             </ListViewItem>
                                         </ListView>
                                     </ScrollViewer>

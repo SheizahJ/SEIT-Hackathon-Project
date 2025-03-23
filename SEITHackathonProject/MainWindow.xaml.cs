@@ -1,15 +1,23 @@
 ﻿using GMap.NET;
 using GMap.NET.MapProviders;
-using GMap.NET.WindowsPresentation; // Ensure you are using this for overlays
+using GMap.NET.WindowsPresentation;
+using Google.Protobuf;
+using GTFS.IO.CSV;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
+using TransitRealtime;
+
+
 
 namespace SEITHackathonProject
 {
@@ -19,14 +27,20 @@ namespace SEITHackathonProject
         private SolidColorBrush TabSelectColor = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#FFB8B4B4"));
         private const int InfoUpYPos = 80;
         private const int InfoDownYPos = 470;
+        private string projectDirectory = System.IO.Path.GetFullPath(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\..\"));
 
         // variables
         private bool routeInfoShown = true;
+        private string dataPath, rtDataPath, stDataPath = "";
 
 
         public MainWindow()
         {
             InitializeComponent();
+
+            dataPath = System.IO.Path.Combine(projectDirectory, "Data");
+            rtDataPath = System.IO.Path.Combine(dataPath, "GTFS_DRT_RT");
+            stDataPath = System.IO.Path.Combine(dataPath, "GTFS_DRT_Static");
         }
 
         // Load stops from the file
@@ -123,10 +137,109 @@ namespace SEITHackathonProject
             return routes;
         }
 
+        private TripUpdate GetRTTripUpdate()
+        {
+            string filePath = $@"{rtDataPath}\TripUpdates";
+            try
+            {
+                // Read the GTFS-RT feed into a byte array
+                byte[] fileContent = File.ReadAllBytes(filePath);
+
+                // Parse the GTFS-RT FeedMessage from the byte array
+                var feedMessage = FeedMessage.Parser.ParseFrom(fileContent);
+
+                // Iterate through each entity in the feed
+                foreach (var entity in feedMessage.Entity)
+                {
+                    // Check if the entity contains a TripUpdate
+                    if (entity.TripUpdate.HasTimestamp)
+                    {
+                        return entity.TripUpdate;
+                    }
+                }
+            }
+            catch (InvalidProtocolBufferException ex)
+            {
+                Console.WriteLine($"Error parsing GTFS-RT feed: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"An error occurred: {ex.Message}");
+            }
+
+            return null;
+        }
+
+        private VehiclePosition GetRTVehiclePosition()
+        {
+            string filePath = $@"{rtDataPath}\VehiclePositions";
+            try
+            {
+                // Read the GTFS-RT feed into a byte array
+                byte[] fileContent = File.ReadAllBytes(filePath);
+
+                // Parse the GTFS-RT FeedMessage from the byte array
+                var feedMessage = FeedMessage.Parser.ParseFrom(fileContent);
+
+                // Iterate through each entity in the feed
+                foreach (var entity in feedMessage.Entity)
+                {
+                    // Check if the entity contains a TripUpdate
+                    if (entity.Vehicle.HasStopId)
+                    {
+                        return entity.Vehicle;
+                    }
+                }
+            }
+            catch (InvalidProtocolBufferException ex)
+            {
+                Console.WriteLine($"Error parsing GTFS-RT feed: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"An error occurred: {ex.Message}");
+            }
+
+            return null;
+        }
+
+        private Alert GetRTAlert()
+        {
+            // Path to your GTFS-RT file (e.g., .pb file)
+            string filePath = $@"{rtDataPath}\alerts.pb";
+
+            //// Read the GTFS-RT file into a byte array
+            byte[] fileContent = File.ReadAllBytes(filePath);
+
+            // Parse the GTFS-RT feed from the byte array
+            var feedMessage = FeedMessage.Parser.ParseFrom(fileContent);
+
+            // Iterate through each entity in the feed
+            foreach (var entity in feedMessage.Entity)
+            {
+                // Check if the entity contains a service alert
+                if (entity.HasId)
+                {
+                    return entity.Alert;
+                }
+            }
+
+            return null;
+        }
+
+
         private void mapView_Loaded(object sender, RoutedEventArgs e)
         {
-            List<Stop> stops = LoadStops(@"C:\Users\ASUS\source\repos\SEIT-Hackathon-Project\SEITHackathonProject\Data\GTFS_DRT_Static\stops.txt");
-            List<Route> routes = LoadRoutes(@"C:\Users\ASUS\source\repos\SEIT-Hackathon-Project\SEITHackathonProject\Data\GTFS_DRT_Static\routes.txt");
+            string stopsPath = $@"{stDataPath}\stops.txt";
+            string routesPath = $@"{stDataPath}\routes.txt";
+
+            List<Stop> stops = LoadStops(stopsPath);
+            List<Route> routes = LoadRoutes(routesPath);
+
+            List<PointLatLng> points = new List<PointLatLng>();
+            GMapPolygon polygon = new GMapPolygon(points);
+
+            
 
             GMaps.Instance.Mode = AccessMode.ServerAndCache;
             mapView.MapProvider = OpenStreetMapProvider.Instance;
@@ -136,6 +249,8 @@ namespace SEITHackathonProject
             mapView.MouseWheelZoomType = MouseWheelZoomType.MousePositionAndCenter;
             mapView.CanDragMap = true;
             mapView.DragButton = System.Windows.Input.MouseButton.Left;
+            mapView.ShowCenter = false;
+            mapView.SetPositionByKeywords("Oshawa, Canada");
 
             mapView.Markers.Clear();
 
@@ -159,24 +274,33 @@ namespace SEITHackathonProject
             }
 
             // Add routes as GMapRoute objects to the overlay
+            // THIS PART WILL NOT WORK AND IDK WHY SO I GIVE UP
             foreach (var route in routes)
             {
                 List<PointLatLng> routePoints = GetRoutePointsForRoute(route.RouteId, stops);
+
+                List<Point> allPoints = new List<Point>();
+                int newPoint = 0;
+                foreach (var pointLatLng in routePoints)
+                {
+                    Point point = new Point(newPoint, newPoint);
+                    allPoints.Add(point);
+                    newPoint++;
+                }
+
                 if (routePoints.Count > 1)
                 {
-                    var routeLine = new GMapRoute(routePoints)
-                    {
-                        // Set properties for the route (color and thickness)
-                        // Stroke = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Pink),
-                        //StrokeThickness = 2
-                    };
-
-                    // routesOverlay.Routes.Add(routeLine);
+                    var routeLine = new GMapRoute(routePoints);
+                    var path = routeLine.CreatePath(allPoints, false);
+                    Canvas.SetZIndex(path, 2);
                 }
+
+                // add routes to dropdown
             }
 
             // Add overlay to the map
             // mapView.Overlays.Add(routesOverlay);
+
 
             // Focus on the first stop
             if (stops.Count > 0)
@@ -205,6 +329,7 @@ namespace SEITHackathonProject
         {
             return true; // Logic to check if the stop belongs to the route
         }
+
         public class Stop
         {
             public string StopId { get; set; }
@@ -225,11 +350,10 @@ namespace SEITHackathonProject
             // public string RouteColor { get; set; }
             // public string RouteTextColor { get; set; }
         }
-    
-    
 
 
-       
+
+
 
 
         // UI Events - Purely for visual aspects
@@ -261,12 +385,18 @@ namespace SEITHackathonProject
         {
             CrrntRouteBtn.Background = TabSelectColor;
             SuggstRouteBtn.Background = null;
+
+            CurrentRouteMenu.Visibility = Visibility.Visible;
+            SuggestRouteMenu.Visibility = Visibility.Hidden;
         }
 
         private void SuggstRouteBtn_Click(object sender, RoutedEventArgs e)
         {
             SuggstRouteBtn.Background = TabSelectColor;
             CrrntRouteBtn.Background = null;
+
+            SuggestRouteMenu.Visibility = Visibility.Visible;
+            CurrentRouteMenu.Visibility = Visibility.Hidden;
         }
     }
 }
