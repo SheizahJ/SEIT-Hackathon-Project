@@ -12,9 +12,22 @@
     >
 
     <Window.Resources>
+        <Style TargetType="GroupBox">
+            <Style.Setters>
+                <Setter Property="Background" Value="#FF484848"/>
+                <Setter Property="BorderThickness" Value="0"/>
+            </Style.Setters>
+        </Style>
         <Style TargetType="ScrollViewer">
             <Style.Setters>
-                <Setter Property="Background" Value="#FFD4D2D2"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderThickness" Value="0"/>
+            </Style.Setters>
+        </Style>
+        <Style TargetType="ListView">
+            <Style.Setters>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderThickness" Value="0"/>
             </Style.Setters>
         </Style>
     </Window.Resources>
@@ -78,7 +91,48 @@
                     </Grid>
 
                     <Grid Grid.Row="1">
-                        
+                        <GroupBox Name="CurrentRouteMenu" Visibility="Visible">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="80" />
+                                    <RowDefinition Height="1*" />
+                                </Grid.RowDefinitions>
+
+                                <Grid Grid.Row="0">
+                                    <Label HorizontalAlignment="Center" Foreground="White" Margin="0,0,0,50">Select your Destination</Label>
+                                    <ComboBox Name="RoutesDropDown" Margin="20,30,20,20"></ComboBox>
+                                </Grid>
+
+                                <Grid Grid.Row="1">
+                                    <ScrollViewer VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
+                                        <ListView Name="CurrentRouteInfo">
+                                            <ListViewItem>
+                                                
+                                            </ListViewItem>
+                                        </ListView>
+                                    </ScrollViewer>
+                                </Grid>
+                            </Grid>
+                        </GroupBox>
+
+                        <GroupBox Name="SuggestRouteMenu" Visibility="Hidden">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="35" />
+                                    <RowDefinition Height="1*" />
+                                </Grid.RowDefinitions>
+
+                                <Grid Grid.Row="0">
+                                    <Label HorizontalAlignment="Center" Foreground="White">Alternative Routes to your Destination</Label>
+                                </Grid>
+
+                                <Grid Grid.Row="1">
+                                    <ScrollViewer VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
+                                        <ListView Name="SuggestRouteInfo"/>
+                                    </ScrollViewer>
+                                </Grid>
+                            </Grid>
+                        </GroupBox>
                     </Grid>
                 </Grid>
             </Grid>
