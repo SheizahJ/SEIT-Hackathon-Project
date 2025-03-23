@@ -1,6 +1,7 @@
 ﻿using GMap.NET;
 using GMap.NET.MapProviders;
-using GMap.NET.WindowsPresentation; // Ensure you are using this for overlays
+using GMap.NET.WindowsForms;
+using GMap.NET.WindowsPresentation;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -10,6 +11,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
+using GMapRoute = GMap.NET.WindowsPresentation.GMapRoute;
 
 namespace SEITHackathonProject
 {
@@ -139,13 +141,10 @@ namespace SEITHackathonProject
 
             mapView.Markers.Clear();
 
-            // Create overlay for routes
-            //GMapOverlay routesOverlay = new GMapOverlay("routes");
-
-            // Add markers for each stop
+            // Add markers for each stop  
             foreach (var stop in stops)
             {
-                var marker = new GMapMarker(new PointLatLng(stop.Latitude, stop.Longitude))
+                var marker = new GMap.NET.WindowsPresentation.GMapMarker(new PointLatLng(stop.Latitude, stop.Longitude))
                 {
                     Shape = new System.Windows.Shapes.Ellipse
                     {
@@ -158,33 +157,20 @@ namespace SEITHackathonProject
                 mapView.Markers.Add(marker);
             }
 
-            // Add routes as GMapRoute objects to the overlay
-            foreach (var route in routes)
-            {
-                List<PointLatLng> routePoints = GetRoutePointsForRoute(route.RouteId, stops);
-                if (routePoints.Count > 1)
-                {
-                    var routeLine = new GMapRoute(routePoints)
-                    {
-                        // Set properties for the route (color and thickness)
-                        // Stroke = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Pink),
-                        //StrokeThickness = 2
-                    };
 
-                    // routesOverlay.Routes.Add(routeLine);
-                }
-            }
+            // Ensure the map has an overlay for routes
+            
 
-            // Add overlay to the map
-            // mapView.Overlays.Add(routesOverlay);
 
-            // Focus on the first stop
+
+
+
+            // Center the map on the first stop  
             if (stops.Count > 0)
             {
                 mapView.Position = new PointLatLng(stops[0].Latitude, stops[0].Longitude);
             }
         }
-
         // Method to get route points for a specific RouteId
         public List<PointLatLng> GetRoutePointsForRoute(string routeId, List<Stop> stops)
         {
