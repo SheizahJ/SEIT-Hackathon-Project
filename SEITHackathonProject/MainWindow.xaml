@@ -59,6 +59,8 @@
             </Grid>
         </Grid>
 
+        <Button Name="AlertBtn" Margin="335, 100,10,530" Background="#FFD43B19" Foreground="White" Click="AlertBtn_Click">ALERT</Button>
+
         <GroupBox Name="RouteInfoBox" Height="530" RenderTransformOrigin="0.5,1" Panel.ZIndex="2">
             <GroupBox.RenderTransform>
                 <TransformGroup>

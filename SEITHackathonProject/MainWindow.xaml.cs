@@ -446,7 +446,7 @@ namespace SEITHackathonProject
 
 
             // UI Events - Purely for visual aspects
-            private Grid CreateRouteItem(Route route, string status)
+        private Grid CreateRouteItem(Route route, string status)
         {
             // grid setup
             var routeInfo = new Grid();
@@ -539,9 +539,19 @@ namespace SEITHackathonProject
             }
 
             // Current Route UI ----------------
-            CurrentRouteInfo.Items.Add(CreateRouteItem(route, routeStatusTxt));
+            CurrentRouteInfo.Items.Add(CreateRouteItem(route, routeStatusTxt));            
+        }
 
+        private void AlertBtn_Click(object sender, RoutedEventArgs e)
+        {
+            Console.WriteLine("Alerted!");
+
+            bool alertVisible = AlertNotice.IsVisible;
             
+            if (alertVisible)
+                AlertNotice.Visibility = Visibility.Hidden;
+            else
+                AlertNotice.Visibility = Visibility.Visible;
         }
 
         private void CrrntRouteBtn_Click(object sender, RoutedEventArgs e)
