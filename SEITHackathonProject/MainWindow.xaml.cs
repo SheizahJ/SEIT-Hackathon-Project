@@ -32,6 +32,8 @@ namespace SEITHackathonProject
         // variables
         private bool routeInfoShown = true;
         private string dataPath, rtDataPath, stDataPath = "";
+        List<Stop> stops = new List<Stop>();
+        List<Route> routes = new List<Route>();
 
 
         public MainWindow()
@@ -137,26 +139,25 @@ namespace SEITHackathonProject
             return routes;
         }
 
-        private TripUpdate GetRTTripUpdate()
+        private List<TripUpdate> GetRTTripUpdate()
         {
             string filePath = $@"{rtDataPath}\TripUpdates";
             try
             {
-                // Read the GTFS-RT feed into a byte array
                 byte[] fileContent = File.ReadAllBytes(filePath);
-
-                // Parse the GTFS-RT FeedMessage from the byte array
                 var feedMessage = FeedMessage.Parser.ParseFrom(fileContent);
 
-                // Iterate through each entity in the feed
+                List<TripUpdate> tripUdpates = new List<TripUpdate>();
                 foreach (var entity in feedMessage.Entity)
                 {
-                    // Check if the entity contains a TripUpdate
                     if (entity.TripUpdate.HasTimestamp)
                     {
-                        return entity.TripUpdate;
+                        //Console.WriteLine(entity.TripUpdate.HasDelay);
+                        tripUdpates.Add(entity.TripUpdate);
                     }
                 }
+
+                return tripUdpates;
             }
             catch (InvalidProtocolBufferException ex)
             {
@@ -170,26 +171,24 @@ namespace SEITHackathonProject
             return null;
         }
 
-        private VehiclePosition GetRTVehiclePosition()
+        private List<VehiclePosition> GetRTVehiclePosition()
         {
             string filePath = $@"{rtDataPath}\VehiclePositions";
             try
             {
-                // Read the GTFS-RT feed into a byte array
                 byte[] fileContent = File.ReadAllBytes(filePath);
-
-                // Parse the GTFS-RT FeedMessage from the byte array
                 var feedMessage = FeedMessage.Parser.ParseFrom(fileContent);
 
-                // Iterate through each entity in the feed
+                List<VehiclePosition> vehiclePositions = new List<VehiclePosition>();
                 foreach (var entity in feedMessage.Entity)
                 {
-                    // Check if the entity contains a TripUpdate
                     if (entity.Vehicle.HasStopId)
                     {
-                        return entity.Vehicle;
+                        vehiclePositions.Add(entity.Vehicle);
                     }
                 }
+
+                return vehiclePositions;
             }
             catch (InvalidProtocolBufferException ex)
             {
@@ -203,28 +202,23 @@ namespace SEITHackathonProject
             return null;
         }
 
-        private Alert GetRTAlert()
+        private List<Alert> GetRTAlert()
         {
-            // Path to your GTFS-RT file (e.g., .pb file)
             string filePath = $@"{rtDataPath}\alerts.pb";
-
-            //// Read the GTFS-RT file into a byte array
             byte[] fileContent = File.ReadAllBytes(filePath);
-
-            // Parse the GTFS-RT feed from the byte array
             var feedMessage = FeedMessage.Parser.ParseFrom(fileContent);
 
-            // Iterate through each entity in the feed
+            List<Alert> alerts = new List<Alert>();
             foreach (var entity in feedMessage.Entity)
             {
-                // Check if the entity contains a service alert
                 if (entity.HasId)
-                {
-                    return entity.Alert;
-                }
+                    alerts.Add(entity.Alert);
             }
 
-            return null;
+            if (alerts.Count > 0) 
+                return alerts;
+            else 
+                return null;
         }
 
 
@@ -233,13 +227,11 @@ namespace SEITHackathonProject
             string stopsPath = $@"{stDataPath}\stops.txt";
             string routesPath = $@"{stDataPath}\routes.txt";
 
-            List<Stop> stops = LoadStops(stopsPath);
-            List<Route> routes = LoadRoutes(routesPath);
+            stops = LoadStops(stopsPath);
+            routes = LoadRoutes(routesPath);
 
             List<PointLatLng> points = new List<PointLatLng>();
             GMapPolygon polygon = new GMapPolygon(points);
-
-            
 
             GMaps.Instance.Mode = AccessMode.ServerAndCache;
             mapView.MapProvider = OpenStreetMapProvider.Instance;
@@ -296,6 +288,9 @@ namespace SEITHackathonProject
                 }
 
                 // add routes to dropdown
+                ComboBoxItem routeItem = new ComboBoxItem();
+                routeItem.Content = route.RouteLongName;
+                RoutesDropDown.Items.Add(routeItem);
             }
 
             // Add overlay to the map
@@ -353,10 +348,38 @@ namespace SEITHackathonProject
 
 
 
-
-
-
         // UI Events - Purely for visual aspects
+        private Grid CreateRouteItem(Route route, string status)
+        {
+            // grid setup
+            var routeInfo = new Grid();
+
+            RowDefinition row1 = new RowDefinition();
+            row1.Height = new GridLength(20);
+            routeInfo.RowDefinitions.Add(row1);
+
+            RowDefinition row2 = new RowDefinition();
+            row2.Height = new GridLength(40);
+            routeInfo.RowDefinitions.Add(row2);
+
+            // textblock
+            var routeName = new TextBlock
+            {
+                Text = route.RouteLongName
+            };
+            Grid.SetRow(routeName, 0);
+            routeInfo.Children.Add(routeName);
+
+            var routeStatus = new TextBlock
+            {
+                Text = status
+            };
+            Grid.SetRow(routeStatus, 1);
+            routeInfo.Children.Add(routeStatus);
+
+            return routeInfo;
+        }
+
         private void InfoShowBar_Click(object sender, RoutedEventArgs e)
         {
             void TransformAnimation(int toPosition)
@@ -379,6 +402,40 @@ namespace SEITHackathonProject
                 TransformAnimation(InfoUpYPos);
             else
                 TransformAnimation(InfoDownYPos);
+        }
+
+        private void RoutesDropDown_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            CurrentRouteInfo.Items.Clear();
+
+            // get route info
+            var selectedItem = RoutesDropDown.SelectedItem as ComboBoxItem;
+            Route route = routes.FirstOrDefault(p => p.RouteLongName.Equals(selectedItem.Content.ToString(), StringComparison.OrdinalIgnoreCase));
+
+            var tripUpdates = GetRTTripUpdate();
+            string routeStatusTxt = "Route has no delay.";
+
+            // Suggested Route UI ----------------
+            int count = 0;
+;           foreach ( var tripUpdate in tripUpdates )
+            {
+                if (tripUpdate.Trip.RouteId != route.RouteId && !tripUpdate.HasDelay && count < 5)
+                {
+                    Route tripRoute = routes.FirstOrDefault(p => p.RouteId.Equals(tripUpdate.Trip.RouteId, StringComparison.OrdinalIgnoreCase));
+                    SuggestRouteInfo.Items.Add(CreateRouteItem(tripRoute, "Route has no delay."));
+                }
+                count++;
+
+
+                // for current route ui
+                if (tripUpdate.Trip.RouteId == route.RouteId && tripUpdate.HasDelay)
+                    routeStatusTxt = "There is a delay on this route.";
+            }
+
+            // Current Route UI ----------------
+            CurrentRouteInfo.Items.Add(CreateRouteItem(route, routeStatusTxt));
+
+            
         }
 
         private void CrrntRouteBtn_Click(object sender, RoutedEventArgs e)

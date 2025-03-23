@@ -106,7 +106,7 @@
 
                                 <Grid Grid.Row="0">
                                     <Label HorizontalAlignment="Center" Foreground="White" Margin="0,0,0,50">Select your Destination</Label>
-                                    <ComboBox Name="RoutesDropDown" Margin="20,30,20,20"></ComboBox>
+                                    <ComboBox Name="RoutesDropDown" Margin="20,30,20,20" SelectionChanged="RoutesDropDown_SelectionChanged"></ComboBox>
                                 </Grid>
 
                                 <Grid Grid.Row="1">
