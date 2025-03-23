@@ -4,9 +4,85 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:SEITHackathonProject"
+        xmlns:gmaps="clr-namespace:GMap.NET.WindowsPresentation;assembly=GMap.NET.WindowsPresentation"
+
         mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
+        Title="MainWindow" Height="700" Width="450"
+        Background="DarkSeaGreen"
+    >
+
+    <Window.Resources>
+        <Style TargetType="ScrollViewer">
+            <Style.Setters>
+                <Setter Property="Background" Value="#FFD4D2D2"/>
+            </Style.Setters>
+        </Style>
+    </Window.Resources>
+
     <Grid>
+        <gmaps:GMapControl x:Name="mapView" Loaded="mapView_Loaded" />
+
+        <Grid Name="Alert"  Margin="10,10,10,570" Background="#FFE6A71C">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="25*" />
+                <RowDefinition Height="30*" />
+            </Grid.RowDefinitions>
+            
+            <Grid Grid.Row="0">
+                <Label Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="18" FontWeight="Bold">ROUTE NOTICE</Label>
+            </Grid>
+
+            <Grid Grid.Row="1">
+                <TextBlock TextAlignment="Center" VerticalAlignment="Center" Foreground="White" TextWrapping="Wrap">
+                    A delay in transit has impacted your current route. See SUGGESTED ROUTES for alternatives routes.
+                </TextBlock>
+            </Grid>
+        </Grid>
+
+        <GroupBox Name="RouteInfoBox" Height="530" RenderTransformOrigin="0.5,1">
+            <GroupBox.RenderTransform>
+                <TransformGroup>
+                    <TranslateTransform x:Name="RouteInfoTranslation" X="0" Y="80"/>
+                </TransformGroup>
+            </GroupBox.RenderTransform>
+            <Grid Name="RouteInfo" Background="#FF343434">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="1*" />
+                    <RowDefinition Height="15*" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0">
+                    <Button Name="InfoShowBar" Background="{x:Null}" Foreground="{x:Null}" BorderBrush="#FF393939" Click="InfoShowBar_Click" />
+                    <Rectangle Width="150" Height="5" Fill="#FFAEAEAE" />
+                </Grid>
+
+                <Grid Grid.Row="1">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="1.5*" />
+                        <RowDefinition Height="15*" />
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1*" />
+                            <ColumnDefinition Width="1*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Grid Grid.Column="0">
+                            <Button Name="CrrntRouteBtn" Margin="10, 8" Background="#FFB8B4B4" Foreground="White" Click="CrrntRouteBtn_Click">Current Route</Button>
+                        </Grid>
+
+                        <Grid Grid.Column="1">
+                            <Button Name="SuggstRouteBtn" Margin="10, 8" Background="{x:Null}" Foreground="White" Click="SuggstRouteBtn_Click">Suggested Routes</Button>
+                        </Grid>
+                    </Grid>
+
+                    <Grid Grid.Row="1">
+                        
+                    </Grid>
+                </Grid>
+            </Grid>
+        </GroupBox>
         
     </Grid>
 </Window>
