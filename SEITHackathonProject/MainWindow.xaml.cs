@@ -125,8 +125,8 @@ namespace SEITHackathonProject
 
         private void mapView_Loaded(object sender, RoutedEventArgs e)
         {
-            List<Stop> stops = LoadStops(@"C:\path\to\stops.txt");
-            List<Route> routes = LoadRoutes(@"C:\path\to\routes.txt");
+            List<Stop> stops = LoadStops(@"C:\Users\ASUS\source\repos\SEIT-Hackathon-Project\SEITHackathonProject\Data\GTFS_DRT_Static\stops.txt");
+            List<Route> routes = LoadRoutes(@"C:\Users\ASUS\source\repos\SEIT-Hackathon-Project\SEITHackathonProject\Data\GTFS_DRT_Static\routes.txt");
 
             GMaps.Instance.Mode = AccessMode.ServerAndCache;
             mapView.MapProvider = OpenStreetMapProvider.Instance;
@@ -140,7 +140,7 @@ namespace SEITHackathonProject
             mapView.Markers.Clear();
 
             // Create overlay for routes
-            GMapOverlay routesOverlay = new GMapOverlay("routes");
+            //GMapOverlay routesOverlay = new GMapOverlay("routes");
 
             // Add markers for each stop
             foreach (var stop in stops)
@@ -167,16 +167,16 @@ namespace SEITHackathonProject
                     var routeLine = new GMapRoute(routePoints)
                     {
                         // Set properties for the route (color and thickness)
-                        Stroke = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Pink),
-                        StrokeThickness = 2
+                        // Stroke = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Pink),
+                        //StrokeThickness = 2
                     };
 
-                    routesOverlay.Routes.Add(routeLine);
+                    // routesOverlay.Routes.Add(routeLine);
                 }
             }
 
             // Add overlay to the map
-            mapView.Overlays.Add(routesOverlay);
+            // mapView.Overlays.Add(routesOverlay);
 
             // Focus on the first stop
             if (stops.Count > 0)
@@ -226,24 +226,10 @@ namespace SEITHackathonProject
             // public string RouteTextColor { get; set; }
         }
     
-}
+    
 
-        private void mapView_Loaded(object sender, RoutedEventArgs e)
-        {
-            GMap.NET.GMaps.Instance.Mode = GMap.NET.AccessMode.ServerAndCache;
-            // choose your provider here
-            mapView.MapProvider = GMap.NET.MapProviders.OpenStreetMapProvider.Instance;
-            mapView.MinZoom = 2;
-            mapView.MaxZoom = 17;
-            // whole world zoom
-            mapView.Zoom = 2;
-            // lets the map use the mousewheel to zoom
-            mapView.MouseWheelZoomType = GMap.NET.MouseWheelZoomType.MousePositionAndCenter;
-            // lets the user drag the map
-            mapView.CanDragMap = true;
-            // lets the user drag the map with the left mouse button
-            mapView.DragButton = MouseButton.Left;
-        }
+
+       
 
 
         // UI Events - Purely for visual aspects
@@ -255,7 +241,7 @@ namespace SEITHackathonProject
                 {
                     From = RouteInfoTranslation.Y,
                     To = toPosition, // Translate to 100 on the Y axis
-                    Duration = new Duration(TimeSpan.FromSeconds(0.3))
+                    Duration = new System.Windows.Duration(TimeSpan.FromSeconds(0.3))
                 };
 
                 // Apply the animations to the TranslateTransform
