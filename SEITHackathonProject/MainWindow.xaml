@@ -7,7 +7,7 @@
         xmlns:gmaps="clr-namespace:GMap.NET.WindowsPresentation;assembly=GMap.NET.WindowsPresentation"
 
         mc:Ignorable="d"
-        Title="MainWindow" Height="700" Width="450"
+        Title="RT Alert System" Height="700" Width="450"
         Background="DarkSeaGreen"
         ResizeMode="CanMinimize"
     >

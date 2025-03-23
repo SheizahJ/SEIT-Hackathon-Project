@@ -516,10 +516,7 @@ namespace SEITHackathonProject
             string routeStatusTxt = "Route has no delay.";
 
             // map updates
-            Console.WriteLine("Starting!!");
             CreateRouteMarkers(route.RouteId, stops);
-
-            Console.WriteLine("Reached!!!!!!!");
 
             // Suggested Route UI ----------------
             int count = 0;
