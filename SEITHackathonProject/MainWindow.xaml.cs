@@ -2,6 +2,7 @@
 using GMap.NET.MapProviders;
 using GMap.NET.WindowsPresentation;
 using Google.Protobuf;
+using GTFS.Entities.Enumerations;
 using GTFS.IO.CSV;
 using System;
 using System.Collections.Generic;
@@ -16,6 +17,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
 using TransitRealtime;
+using static GMap.NET.Entity.OpenStreetMapGraphHopperGeocodeEntity;
 
 
 
@@ -43,6 +45,12 @@ namespace SEITHackathonProject
             dataPath = System.IO.Path.Combine(projectDirectory, "Data");
             rtDataPath = System.IO.Path.Combine(dataPath, "GTFS_DRT_RT");
             stDataPath = System.IO.Path.Combine(dataPath, "GTFS_DRT_Static");
+
+            string stopsPath = $@"{stDataPath}\stops.txt";
+            string routesPath = $@"{stDataPath}\routes.txt";
+
+            stops = LoadStops(stopsPath);
+            routes = LoadRoutes(routesPath);
         }
 
         // Load stops from the file
@@ -139,6 +147,8 @@ namespace SEITHackathonProject
             return routes;
         }
 
+        
+
         private List<TripUpdate> GetRTTripUpdate()
         {
             string filePath = $@"{rtDataPath}\TripUpdates";
@@ -224,12 +234,6 @@ namespace SEITHackathonProject
 
         private void mapView_Loaded(object sender, RoutedEventArgs e)
         {
-            string stopsPath = $@"{stDataPath}\stops.txt";
-            string routesPath = $@"{stDataPath}\routes.txt";
-
-            stops = LoadStops(stopsPath);
-            routes = LoadRoutes(routesPath);
-
             List<PointLatLng> points = new List<PointLatLng>();
             GMapPolygon polygon = new GMapPolygon(points);
 
@@ -250,9 +254,68 @@ namespace SEITHackathonProject
             //GMapOverlay routesOverlay = new GMapOverlay("routes");
 
             // Add markers for each stop
-            foreach (var stop in stops)
+            //foreach (var stop in stops)
+            //{
+            //    var marker = new GMapMarker(new PointLatLng(stop.Latitude, stop.Longitude))
+            //    {
+            //        Shape = new System.Windows.Shapes.Ellipse
+            //        {
+            //            Width = 5,
+            //            Height = 5,
+            //            Fill = Brushes.Red
+            //        }
+            //    };
+
+            //    mapView.Markers.Add(marker);
+            //}
+
+            // Add routes as GMapRoute objects to the overlay
+            // THIS PART WILL NOT WORK AND IDK WHY SO I GIVE UP
+            foreach (var route in routes)
             {
-                var marker = new GMapMarker(new PointLatLng(stop.Latitude, stop.Longitude))
+                //List<PointLatLng> routePoints = GetRoutePointsForRoute(route.RouteId, stops);
+
+                //List<Point> allPoints = new List<Point>();
+                //int newPoint = 0;
+                //foreach (var pointLatLng in routePoints)
+                //{
+                //    Point point = new Point(newPoint, newPoint);
+                //    allPoints.Add(point);
+                //    newPoint++;
+                //}
+
+                //if (routePoints.Count > 1)
+                //{
+                //    var routeLine = new GMapRoute(routePoints);
+                //    var path = routeLine.CreatePath(allPoints, false);
+                //    Canvas.SetZIndex(path, 2);
+                //}
+
+                // add routes to dropdown
+                ComboBoxItem routeItem = new ComboBoxItem();
+                routeItem.Content = route.RouteLongName;
+                RoutesDropDown.Items.Add(routeItem);
+            }
+
+            // Add overlay to the map
+            // mapView.Overlays.Add(routesOverlay);
+            
+
+            // Focus on the first stop
+            if (stops.Count > 0)
+            {
+                mapView.Position = new PointLatLng(stops[0].Latitude, stops[0].Longitude);
+            }
+        }
+
+        // Method to get route points for a specific RouteId
+        public void CreateRouteMarkers(string routeId, List<Stop> stops)
+        {
+            List<PointLatLng> routePoints = GetRoutePoints(routeId);
+
+            foreach (var point in routePoints)
+            {
+                var marker = new GMapMarker(point)
                 {
                     Shape = new System.Windows.Shapes.Ellipse
                     {
@@ -265,64 +328,70 @@ namespace SEITHackathonProject
                 mapView.Markers.Add(marker);
             }
 
-            // Add routes as GMapRoute objects to the overlay
-            // THIS PART WILL NOT WORK AND IDK WHY SO I GIVE UP
-            foreach (var route in routes)
-            {
-                List<PointLatLng> routePoints = GetRoutePointsForRoute(route.RouteId, stops);
-
-                List<Point> allPoints = new List<Point>();
-                int newPoint = 0;
-                foreach (var pointLatLng in routePoints)
-                {
-                    Point point = new Point(newPoint, newPoint);
-                    allPoints.Add(point);
-                    newPoint++;
-                }
-
-                if (routePoints.Count > 1)
-                {
-                    var routeLine = new GMapRoute(routePoints);
-                    var path = routeLine.CreatePath(allPoints, false);
-                    Canvas.SetZIndex(path, 2);
-                }
-
-                // add routes to dropdown
-                ComboBoxItem routeItem = new ComboBoxItem();
-                routeItem.Content = route.RouteLongName;
-                RoutesDropDown.Items.Add(routeItem);
-            }
-
-            // Add overlay to the map
-            // mapView.Overlays.Add(routesOverlay);
-
-
-            // Focus on the first stop
-            if (stops.Count > 0)
-            {
-                mapView.Position = new PointLatLng(stops[0].Latitude, stops[0].Longitude);
-            }
         }
 
-        // Method to get route points for a specific RouteId
-        public List<PointLatLng> GetRoutePointsForRoute(string routeId, List<Stop> stops)
+        public List<PointLatLng> GetRoutePoints(string routeId)
         {
-            List<PointLatLng> routePoints = new List<PointLatLng>();
-
-            foreach (var stop in stops)
+            // trips
+            var tripsForRoute = new HashSet<string>();
+            try
             {
-                if (IsStopPartOfRoute(routeId, stop))
+                using (var reader = new StreamReader($@"{stDataPath}\trips.txt"))
                 {
-                    routePoints.Add(new PointLatLng(stop.Latitude, stop.Longitude));
+                    reader.ReadLine(); // Skip header
+                    while (!reader.EndOfStream)
+                    {
+                        var line = reader.ReadLine();
+                        var values = line.Split(',');
+
+                        var trip = new Trip
+                        {
+                            RouteId = values[0],
+                            TripId = values[2],
+                        };
+
+                        if (trip.RouteId == routeId)
+                            tripsForRoute.Add(trip.TripId.ToString());
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error loading trips: " + ex.Message);
+            }
+
+            // stop times
+            List<PointLatLng> routePoints = new List<PointLatLng>();
+            try
+            {
+                using (var reader = new StreamReader($@"{stDataPath}\stop_times.txt"))
+                {
+                    reader.ReadLine(); // Skip header
+                    while (!reader.EndOfStream)
+                    {
+                        var line = reader.ReadLine();
+                        var values = line.Split(',');
+
+                        var stopTime = new StopTime
+                        {
+                            TripId = values[0],
+                            StopId = values[3],
+                        };
+
+                        if (tripsForRoute.Contains(stopTime.TripId))
+                        {
+                            var stop = stops.FirstOrDefault(stp => stp.StopId == stopTime.StopId);
+                            routePoints.Add(new PointLatLng(stop.Latitude, stop.Longitude));
+                        }    
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error loading trips: " + ex.Message);
             }
 
             return routePoints;
-        }
-
-        public bool IsStopPartOfRoute(string routeId, Stop stop)
-        {
-            return true; // Logic to check if the stop belongs to the route
         }
 
         public class Stop
@@ -346,10 +415,38 @@ namespace SEITHackathonProject
             // public string RouteTextColor { get; set; }
         }
 
+        public class Trip
+        {
+            public string RouteId { get; set; }
+            //public string ServiceId { get; set; }
+            public string TripId { get; set; }
+            //public string TripHeadsign { get; set; }
+            //public int DirectionId { get; set; }
+            //public string BlockId { get; set; }
+            //public string ShapeId { get; set; }
+            //public string DirectionName { get; set; }
+            //public bool WheelchairAccessible { get; set; }
+        }
+
+        public class StopTime
+        {
+            public string TripId { get; set; }
+            //public string ArrivalTime { get; set; }
+            //public string DepartureTime { get; set; }
+            public string StopId { get; set; }
+            //public int StopSequence { get; set; }
+            //public string StopHeadsign { get; set; }
+            //public int PickupType { get; set; }
+            //public int DropOffType { get; set; }
+            //public double ShapeDistTraveled { get; set; }
+            //public bool Timepoint { get; set; }
+
+        }
 
 
-        // UI Events - Purely for visual aspects
-        private Grid CreateRouteItem(Route route, string status)
+
+            // UI Events - Purely for visual aspects
+            private Grid CreateRouteItem(Route route, string status)
         {
             // grid setup
             var routeInfo = new Grid();
@@ -406,7 +503,9 @@ namespace SEITHackathonProject
 
         private void RoutesDropDown_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            mapView.Markers.Clear();
             CurrentRouteInfo.Items.Clear();
+            SuggestRouteInfo.Items.Clear();
             AlertNotice.Visibility = Visibility.Hidden;
 
             // get route info
@@ -415,6 +514,12 @@ namespace SEITHackathonProject
 
             var tripUpdates = GetRTTripUpdate();
             string routeStatusTxt = "Route has no delay.";
+
+            // map updates
+            Console.WriteLine("Starting!!");
+            CreateRouteMarkers(route.RouteId, stops);
+
+            Console.WriteLine("Reached!!!!!!!");
 
             // Suggested Route UI ----------------
             int count = 0;
