@@ -41,7 +41,7 @@
     <Grid>
         <gmaps:GMapControl x:Name="mapView" Loaded="mapView_Loaded" />
 
-        <Grid Name="Alert"  Margin="10,10,10,570" Panel.ZIndex="2" Background="#FFE6A71C">
+        <Grid Name="AlertNotice"  Margin="10,10,10,570" Panel.ZIndex="2" Background="#FFE6A71C" Visibility="Hidden">
             <Grid.RowDefinitions>
                 <RowDefinition Height="25*" />
                 <RowDefinition Height="30*" />
@@ -110,7 +110,7 @@
                                 </Grid>
 
                                 <Grid Grid.Row="1">
-                                    <ScrollViewer VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                         <ListView Name="CurrentRouteInfo">
                                             <ListViewItem>
                                                 <Label Height="30">hi</Label>
@@ -133,7 +133,7 @@
                                 </Grid>
 
                                 <Grid Grid.Row="1">
-                                    <ScrollViewer VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                         <ListView Name="SuggestRouteInfo"/>
                                     </ScrollViewer>
                                 </Grid>

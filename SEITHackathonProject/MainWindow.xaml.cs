@@ -407,6 +407,7 @@ namespace SEITHackathonProject
         private void RoutesDropDown_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             CurrentRouteInfo.Items.Clear();
+            AlertNotice.Visibility = Visibility.Hidden;
 
             // get route info
             var selectedItem = RoutesDropDown.SelectedItem as ComboBoxItem;
@@ -419,7 +420,7 @@ namespace SEITHackathonProject
             int count = 0;
 ;           foreach ( var tripUpdate in tripUpdates )
             {
-                if (tripUpdate.Trip.RouteId != route.RouteId && !tripUpdate.HasDelay && count < 5)
+                if (tripUpdate.Trip.RouteId != route.RouteId && !tripUpdate.HasDelay && count < 10)
                 {
                     Route tripRoute = routes.FirstOrDefault(p => p.RouteId.Equals(tripUpdate.Trip.RouteId, StringComparison.OrdinalIgnoreCase));
                     SuggestRouteInfo.Items.Add(CreateRouteItem(tripRoute, "Route has no delay."));
@@ -429,7 +430,10 @@ namespace SEITHackathonProject
 
                 // for current route ui
                 if (tripUpdate.Trip.RouteId == route.RouteId && tripUpdate.HasDelay)
+                {
+                    AlertNotice.Visibility = Visibility.Visible;
                     routeStatusTxt = "There is a delay on this route.";
+                }
             }
 
             // Current Route UI ----------------
