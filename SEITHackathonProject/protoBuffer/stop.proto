@@ -1,0 +1,7 @@
+﻿syntax = "proto3";
+
+message Stop {
+    string name = 1;
+    double latitude = 2;
+    double longitude = 3;
+}
