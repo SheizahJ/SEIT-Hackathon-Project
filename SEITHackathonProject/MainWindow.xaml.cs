@@ -1,13 +1,13 @@
-﻿using GMap.NET;
+using GMap.NET;
 using GMap.NET.MapProviders;
 using GMap.NET.WindowsPresentation;
 using Google.Protobuf;
-using GTFS.IO.CSV;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -32,8 +32,8 @@ namespace SEITHackathonProject
         // variables
         private bool routeInfoShown = true;
         private string dataPath, rtDataPath, stDataPath = "";
-        List<Stop> stops = new List<Stop>();
-        List<Route> routes = new List<Route>();
+        private readonly List<Stop> stops = new List<Stop>();
+        private readonly List<Route> routes = new List<Route>();
 
 
         public MainWindow()
@@ -46,9 +46,58 @@ namespace SEITHackathonProject
         }
 
         // Load stops from the file
+        private static string[] SplitCsvLine(string line)
+        {
+            if (string.IsNullOrEmpty(line))
+            {
+                return Array.Empty<string>();
+            }
+
+            var fields = new List<string>();
+            var current = new StringBuilder();
+            var inQuotes = false;
+
+            for (var i = 0; i < line.Length; i++)
+            {
+                var c = line[i];
+                if (c == '"')
+                {
+                    if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+                    {
+                        current.Append('"');
+                        i++;
+                        continue;
+                    }
+
+                    inQuotes = !inQuotes;
+                    continue;
+                }
+
+                if (c == ',' && !inQuotes)
+                {
+                    fields.Add(current.ToString());
+                    current.Clear();
+                    continue;
+                }
+
+                current.Append(c);
+            }
+
+            fields.Add(current.ToString());
+            return fields.ToArray();
+        }
+
         public List<Stop> LoadStops(string filePathStops)
         {
-            var stops = new List<Stop>();
+            var loadedStops = new List<Stop>();
+
+            if (!File.Exists(filePathStops))
+            {
+                MessageBox.Show($"Stops file not found:\n{filePathStops}");
+                return loadedStops;
+            }
+
+            var errorCount = 0;
             try
             {
                 using (var reader = new StreamReader(filePathStops))
@@ -57,29 +106,31 @@ namespace SEITHackathonProject
                     while (!reader.EndOfStream)
                     {
                         var line = reader.ReadLine();
-                        var values = line.Split(',');
+                        var values = SplitCsvLine(line);
 
                         if (values.Length >= 6)
                         {
-                            try
+                            var stop = new Stop
                             {
-                                var stop = new Stop
-                                {
-                                    StopId = values[0],
-                                    StopName = values[2],
-                                    Latitude = double.Parse(values[4]),
-                                    Longitude = double.Parse(values[5])
-                                };
-                                stops.Add(stop);
+                                StopId = values[0],
+                                StopName = values[2]
+                            };
+
+                            if (double.TryParse(values[4], NumberStyles.Float, CultureInfo.InvariantCulture, out var latitude)
+                                && double.TryParse(values[5], NumberStyles.Float, CultureInfo.InvariantCulture, out var longitude))
+                            {
+                                stop.Latitude = latitude;
+                                stop.Longitude = longitude;
+                                loadedStops.Add(stop);
                             }
-                            catch (Exception ex)
+                            else
                             {
-                                MessageBox.Show($"Error parsing line: {line}\n{ex.Message}");
+                                errorCount++;
                             }
                         }
                         else
                         {
-                            MessageBox.Show($"Skipping invalid line: {line}");
+                            errorCount++;
                         }
                     }
                 }
@@ -88,12 +139,26 @@ namespace SEITHackathonProject
             {
                 MessageBox.Show("Error loading stops: " + ex.Message);
             }
-            return stops;
+
+            if (errorCount > 0)
+            {
+                MessageBox.Show($"Loaded stops with {errorCount} invalid row(s).");
+            }
+
+            return loadedStops;
         }
 
         public List<Route> LoadRoutes(string filePathRoute)
         {
-            var routes = new List<Route>();
+            var loadedRoutes = new List<Route>();
+
+            if (!File.Exists(filePathRoute))
+            {
+                MessageBox.Show($"Routes file not found:\n{filePathRoute}");
+                return loadedRoutes;
+            }
+
+            var errorCount = 0;
             try
             {
                 using (var reader = new StreamReader(filePathRoute))
@@ -102,32 +167,25 @@ namespace SEITHackathonProject
                     while (!reader.EndOfStream)
                     {
                         var line = reader.ReadLine();
-                        var values = line.Split(',');
+                        var values = SplitCsvLine(line);
 
-                        if (values.Length >= 9)
+                        if (values.Length >= 7)
                         {
-                            try
+                            var route = new Route
                             {
-                                var route = new Route
-                                {
-                                    RouteId = values[0],
-                                    AgencyId = values[1],
-                                    RouteShortName = values[2],
-                                    RouteLongName = values[3],
-                                    RouteDesc = values[4],
-                                    RouteType = values[5],
-                                    RouteUrl = values[6]
-                                };
-                                routes.Add(route);
-                            }
-                            catch (Exception ex)
-                            {
-                                MessageBox.Show($"Error parsing line: {line}\n{ex.Message}");
-                            }
+                                RouteId = values[0],
+                                AgencyId = values[1],
+                                RouteShortName = values[2],
+                                RouteLongName = values[3],
+                                RouteDesc = values[4],
+                                RouteType = values[5],
+                                RouteUrl = values[6]
+                            };
+                            loadedRoutes.Add(route);
                         }
                         else
                         {
-                            MessageBox.Show($"Skipping invalid line: {line}");
+                            errorCount++;
                         }
                     }
                 }
@@ -136,12 +194,22 @@ namespace SEITHackathonProject
             {
                 MessageBox.Show("Error loading routes: " + ex.Message);
             }
-            return routes;
+
+            if (errorCount > 0)
+            {
+                MessageBox.Show($"Loaded routes with {errorCount} invalid row(s).");
+            }
+
+            return loadedRoutes;
         }
 
         private List<TripUpdate> GetRTTripUpdate()
         {
             string filePath = $@"{rtDataPath}\TripUpdates";
+            if (!File.Exists(filePath))
+            {
+                return new List<TripUpdate>();
+            }
             try
             {
                 byte[] fileContent = File.ReadAllBytes(filePath);
@@ -168,12 +236,16 @@ namespace SEITHackathonProject
                 Console.WriteLine($"An error occurred: {ex.Message}");
             }
 
-            return null;
+            return new List<TripUpdate>();
         }
 
         private List<VehiclePosition> GetRTVehiclePosition()
         {
             string filePath = $@"{rtDataPath}\VehiclePositions";
+            if (!File.Exists(filePath))
+            {
+                return new List<VehiclePosition>();
+            }
             try
             {
                 byte[] fileContent = File.ReadAllBytes(filePath);
@@ -199,26 +271,43 @@ namespace SEITHackathonProject
                 Console.WriteLine($"An error occurred: {ex.Message}");
             }
 
-            return null;
+            return new List<VehiclePosition>();
         }
 
         private List<Alert> GetRTAlert()
         {
             string filePath = $@"{rtDataPath}\alerts.pb";
-            byte[] fileContent = File.ReadAllBytes(filePath);
-            var feedMessage = FeedMessage.Parser.ParseFrom(fileContent);
-
-            List<Alert> alerts = new List<Alert>();
-            foreach (var entity in feedMessage.Entity)
+            if (!File.Exists(filePath))
             {
-                if (entity.HasId)
-                    alerts.Add(entity.Alert);
+                return new List<Alert>();
             }
 
-            if (alerts.Count > 0) 
+            try
+            {
+                byte[] fileContent = File.ReadAllBytes(filePath);
+                var feedMessage = FeedMessage.Parser.ParseFrom(fileContent);
+
+                List<Alert> alerts = new List<Alert>();
+                foreach (var entity in feedMessage.Entity)
+                {
+                    if (entity.HasId)
+                    {
+                        alerts.Add(entity.Alert);
+                    }
+                }
+
                 return alerts;
-            else 
-                return null;
+            }
+            catch (InvalidProtocolBufferException ex)
+            {
+                Console.WriteLine($"Error parsing GTFS-RT feed: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"An error occurred: {ex.Message}");
+            }
+
+            return new List<Alert>();
         }
 
 
@@ -227,11 +316,10 @@ namespace SEITHackathonProject
             string stopsPath = $@"{stDataPath}\stops.txt";
             string routesPath = $@"{stDataPath}\routes.txt";
 
-            stops = LoadStops(stopsPath);
-            routes = LoadRoutes(routesPath);
-
-            List<PointLatLng> points = new List<PointLatLng>();
-            GMapPolygon polygon = new GMapPolygon(points);
+            stops.Clear();
+            routes.Clear();
+            stops.AddRange(LoadStops(stopsPath));
+            routes.AddRange(LoadRoutes(routesPath));
 
             GMaps.Instance.Mode = AccessMode.ServerAndCache;
             mapView.MapProvider = OpenStreetMapProvider.Instance;
@@ -269,29 +357,12 @@ namespace SEITHackathonProject
             // THIS PART WILL NOT WORK AND IDK WHY SO I GIVE UP
             foreach (var route in routes)
             {
-                List<PointLatLng> routePoints = GetRoutePointsForRoute(route.RouteId, stops);
-
-                List<Point> allPoints = new List<Point>();
-                int newPoint = 0;
-                foreach (var pointLatLng in routePoints)
-                {
-                    Point point = new Point(newPoint, newPoint);
-                    allPoints.Add(point);
-                    newPoint++;
-                }
-
-                if (routePoints.Count > 1)
-                {
-                    var routeLine = new GMapRoute(routePoints);
-                    var path = routeLine.CreatePath(allPoints, false);
-                    Canvas.SetZIndex(path, 2);
-                }
-
                 // add routes to dropdown
-                ComboBoxItem routeItem = new ComboBoxItem();
-                routeItem.Content = route.RouteLongName;
+                var routeItem = new ComboBoxItem { Content = route.RouteLongName };
                 RoutesDropDown.Items.Add(routeItem);
             }
+
+            RoutesDropDown.IsEnabled = RoutesDropDown.Items.Count > 0;
 
             // Add overlay to the map
             // mapView.Overlays.Add(routesOverlay);
@@ -407,23 +478,48 @@ namespace SEITHackathonProject
         private void RoutesDropDown_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             CurrentRouteInfo.Items.Clear();
+            SuggestRouteInfo.Items.Clear();
             AlertNotice.Visibility = Visibility.Hidden;
 
             // get route info
             var selectedItem = RoutesDropDown.SelectedItem as ComboBoxItem;
+            if (selectedItem?.Content == null)
+            {
+                return;
+            }
+
             Route route = routes.FirstOrDefault(p => p.RouteLongName.Equals(selectedItem.Content.ToString(), StringComparison.OrdinalIgnoreCase));
+            if (route == null)
+            {
+                CurrentRouteInfo.Items.Add(new TextBlock { Text = "Route details unavailable." });
+                return;
+            }
 
             var tripUpdates = GetRTTripUpdate();
             string routeStatusTxt = "Route has no delay.";
+            if (tripUpdates.Count == 0)
+            {
+                routeStatusTxt = "Realtime updates unavailable.";
+                CurrentRouteInfo.Items.Add(CreateRouteItem(route, routeStatusTxt));
+                return;
+            }
 
             // Suggested Route UI ----------------
             int count = 0;
-;           foreach ( var tripUpdate in tripUpdates )
+            foreach (var tripUpdate in tripUpdates)
             {
+                if (tripUpdate?.Trip == null)
+                {
+                    continue;
+                }
+
                 if (tripUpdate.Trip.RouteId != route.RouteId && !tripUpdate.HasDelay && count < 10)
                 {
                     Route tripRoute = routes.FirstOrDefault(p => p.RouteId.Equals(tripUpdate.Trip.RouteId, StringComparison.OrdinalIgnoreCase));
-                    SuggestRouteInfo.Items.Add(CreateRouteItem(tripRoute, "Route has no delay."));
+                    if (tripRoute != null)
+                    {
+                        SuggestRouteInfo.Items.Add(CreateRouteItem(tripRoute, "Route has no delay."));
+                    }
                 }
                 count++;
 
