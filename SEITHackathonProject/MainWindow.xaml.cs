@@ -7,7 +7,10 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -15,6 +18,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using TransitRealtime;
 
 
@@ -28,12 +32,23 @@ namespace SEITHackathonProject
         private const int InfoUpYPos = 80;
         private const int InfoDownYPos = 470;
         private string projectDirectory = System.IO.Path.GetFullPath(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\..\"));
+        private static readonly Uri TripUpdatesUrl = new Uri("https://drtonline.durhamregiontransit.com/gtfsrealtime/TripUpdates");
+        private static readonly Uri VehiclePositionsUrl = new Uri("https://drtonline.durhamregiontransit.com/gtfsrealtime/VehiclePositions");
+        private static readonly Uri AlertsUrl = new Uri("https://maps.durham.ca/OpenDataGTFS/alerts.pb");
+        private static readonly TimeSpan RealtimeRefreshInterval = TimeSpan.FromSeconds(30);
 
         // variables
         private bool routeInfoShown = true;
         private string dataPath, rtDataPath, stDataPath = "";
         private readonly List<Stop> stops = new List<Stop>();
         private readonly List<Route> routes = new List<Route>();
+        private readonly HttpClient httpClient = new HttpClient();
+        private readonly DispatcherTimer realtimeTimer = new DispatcherTimer();
+        private readonly List<GMapMarker> vehicleMarkers = new List<GMapMarker>();
+        private List<TripUpdate> lastTripUpdates = new List<TripUpdate>();
+        private List<VehiclePosition> lastVehiclePositions = new List<VehiclePosition>();
+        private List<Alert> lastAlerts = new List<Alert>();
+        private bool realtimeRefreshing = false;
 
 
         public MainWindow()
@@ -43,6 +58,7 @@ namespace SEITHackathonProject
             dataPath = System.IO.Path.Combine(projectDirectory, "Data");
             rtDataPath = System.IO.Path.Combine(dataPath, "GTFS_DRT_RT");
             stDataPath = System.IO.Path.Combine(dataPath, "GTFS_DRT_Static");
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
         }
 
         // Load stops from the file
@@ -203,111 +219,173 @@ namespace SEITHackathonProject
             return loadedRoutes;
         }
 
-        private List<TripUpdate> GetRTTripUpdate()
+        private static List<TripUpdate> ExtractTripUpdates(FeedMessage feedMessage)
         {
-            string filePath = $@"{rtDataPath}\TripUpdates";
-            if (!File.Exists(filePath))
+            var tripUpdates = new List<TripUpdate>();
+            if (feedMessage == null)
             {
-                return new List<TripUpdate>();
+                return tripUpdates;
             }
-            try
-            {
-                byte[] fileContent = File.ReadAllBytes(filePath);
-                var feedMessage = FeedMessage.Parser.ParseFrom(fileContent);
 
-                List<TripUpdate> tripUdpates = new List<TripUpdate>();
-                foreach (var entity in feedMessage.Entity)
+            foreach (var entity in feedMessage.Entity)
+            {
+                if (entity.TripUpdate != null)
                 {
-                    if (entity.TripUpdate.HasTimestamp)
-                    {
-                        //Console.WriteLine(entity.TripUpdate.HasDelay);
-                        tripUdpates.Add(entity.TripUpdate);
-                    }
+                    tripUpdates.Add(entity.TripUpdate);
                 }
-
-                return tripUdpates;
-            }
-            catch (InvalidProtocolBufferException ex)
-            {
-                Console.WriteLine($"Error parsing GTFS-RT feed: {ex.Message}");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"An error occurred: {ex.Message}");
             }
 
-            return new List<TripUpdate>();
+            return tripUpdates;
         }
 
-        private List<VehiclePosition> GetRTVehiclePosition()
+        private static List<VehiclePosition> ExtractVehiclePositions(FeedMessage feedMessage)
         {
-            string filePath = $@"{rtDataPath}\VehiclePositions";
-            if (!File.Exists(filePath))
+            var vehiclePositions = new List<VehiclePosition>();
+            if (feedMessage == null)
             {
-                return new List<VehiclePosition>();
-            }
-            try
-            {
-                byte[] fileContent = File.ReadAllBytes(filePath);
-                var feedMessage = FeedMessage.Parser.ParseFrom(fileContent);
-
-                List<VehiclePosition> vehiclePositions = new List<VehiclePosition>();
-                foreach (var entity in feedMessage.Entity)
-                {
-                    if (entity.Vehicle.HasStopId)
-                    {
-                        vehiclePositions.Add(entity.Vehicle);
-                    }
-                }
-
                 return vehiclePositions;
             }
-            catch (InvalidProtocolBufferException ex)
+
+            foreach (var entity in feedMessage.Entity)
             {
-                Console.WriteLine($"Error parsing GTFS-RT feed: {ex.Message}");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"An error occurred: {ex.Message}");
+                if (entity.Vehicle != null)
+                {
+                    vehiclePositions.Add(entity.Vehicle);
+                }
             }
 
-            return new List<VehiclePosition>();
+            return vehiclePositions;
         }
 
-        private List<Alert> GetRTAlert()
+        private static List<Alert> ExtractAlerts(FeedMessage feedMessage)
         {
-            string filePath = $@"{rtDataPath}\alerts.pb";
-            if (!File.Exists(filePath))
+            var alerts = new List<Alert>();
+            if (feedMessage == null)
             {
-                return new List<Alert>();
-            }
-
-            try
-            {
-                byte[] fileContent = File.ReadAllBytes(filePath);
-                var feedMessage = FeedMessage.Parser.ParseFrom(fileContent);
-
-                List<Alert> alerts = new List<Alert>();
-                foreach (var entity in feedMessage.Entity)
-                {
-                    if (entity.HasId)
-                    {
-                        alerts.Add(entity.Alert);
-                    }
-                }
-
                 return alerts;
             }
-            catch (InvalidProtocolBufferException ex)
+
+            foreach (var entity in feedMessage.Entity)
             {
-                Console.WriteLine($"Error parsing GTFS-RT feed: {ex.Message}");
+                if (entity.Alert != null)
+                {
+                    alerts.Add(entity.Alert);
+                }
+            }
+
+            return alerts;
+        }
+
+        private async Task<FeedMessage> FetchFeedMessageAsync(Uri feedUrl, string fallbackPath)
+        {
+            try
+            {
+                byte[] fileContent = await httpClient.GetByteArrayAsync(feedUrl);
+                return FeedMessage.Parser.ParseFrom(fileContent);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"An error occurred: {ex.Message}");
+                Console.WriteLine($"Realtime fetch failed: {ex.Message}");
             }
 
-            return new List<Alert>();
+            if (!string.IsNullOrWhiteSpace(fallbackPath) && File.Exists(fallbackPath))
+            {
+                try
+                {
+                    byte[] fallbackContent = File.ReadAllBytes(fallbackPath);
+                    return FeedMessage.Parser.ParseFrom(fallbackContent);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Fallback parse failed: {ex.Message}");
+                }
+            }
+
+            return null;
+        }
+
+        private async Task RefreshRealtimeAsync()
+        {
+            if (realtimeRefreshing)
+            {
+                return;
+            }
+
+            realtimeRefreshing = true;
+            try
+            {
+                var tripFeed = await FetchFeedMessageAsync(TripUpdatesUrl, $@"{rtDataPath}\TripUpdates");
+                var vehicleFeed = await FetchFeedMessageAsync(VehiclePositionsUrl, $@"{rtDataPath}\VehiclePositions");
+                var alertFeed = await FetchFeedMessageAsync(AlertsUrl, $@"{rtDataPath}\alerts.pb");
+
+                lastTripUpdates = ExtractTripUpdates(tripFeed);
+                lastVehiclePositions = ExtractVehiclePositions(vehicleFeed);
+                lastAlerts = ExtractAlerts(alertFeed);
+
+                UpdateVehicleMarkers(lastVehiclePositions);
+                UpdateAlertNotice(lastAlerts);
+                UpdateCurrentRouteUi();
+            }
+            finally
+            {
+                realtimeRefreshing = false;
+            }
+        }
+
+        private void StartRealtimeRefresh()
+        {
+            realtimeTimer.Interval = RealtimeRefreshInterval;
+            realtimeTimer.Tick += async (sender, args) => await RefreshRealtimeAsync();
+            realtimeTimer.Start();
+            _ = RefreshRealtimeAsync();
+        }
+
+        private void UpdateVehicleMarkers(List<VehiclePosition> vehiclePositions)
+        {
+            foreach (var marker in vehicleMarkers)
+            {
+                mapView.Markers.Remove(marker);
+            }
+            vehicleMarkers.Clear();
+
+            foreach (var vehicle in vehiclePositions)
+            {
+                if (vehicle?.Position == null)
+                {
+                    continue;
+                }
+
+                var marker = new GMapMarker(new PointLatLng(vehicle.Position.Latitude, vehicle.Position.Longitude))
+                {
+                    Shape = new Ellipse
+                    {
+                        Width = 8,
+                        Height = 8,
+                        Fill = Brushes.DeepSkyBlue,
+                        Stroke = Brushes.White,
+                        StrokeThickness = 1,
+                        ToolTip = $"{vehicle.Vehicle?.Id ?? "Vehicle"} {vehicle.Trip?.RouteId ?? string.Empty}".Trim()
+                    }
+                };
+
+                vehicleMarkers.Add(marker);
+                mapView.Markers.Add(marker);
+            }
+        }
+
+        private void UpdateAlertNotice(List<Alert> alerts)
+        {
+            AlertNotice.Visibility = alerts.Count > 0 ? Visibility.Visible : Visibility.Hidden;
+        }
+
+        private void UpdateCurrentRouteUi()
+        {
+            if (RoutesDropDown.SelectedItem == null)
+            {
+                return;
+            }
+
+            RoutesDropDown_SelectionChanged(RoutesDropDown, null);
         }
 
 
@@ -373,6 +451,8 @@ namespace SEITHackathonProject
             {
                 mapView.Position = new PointLatLng(stops[0].Latitude, stops[0].Longitude);
             }
+
+            StartRealtimeRefresh();
         }
 
         // Method to get route points for a specific RouteId
@@ -495,7 +575,7 @@ namespace SEITHackathonProject
                 return;
             }
 
-            var tripUpdates = GetRTTripUpdate();
+            var tripUpdates = lastTripUpdates ?? new List<TripUpdate>();
             string routeStatusTxt = "Route has no delay.";
             if (tripUpdates.Count == 0)
             {
