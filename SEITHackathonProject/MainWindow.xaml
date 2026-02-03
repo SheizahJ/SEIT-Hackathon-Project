@@ -114,6 +114,7 @@
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
 
                                     <Grid Grid.Row="0" Margin="20,5,20,0">
@@ -163,6 +164,11 @@
 
                                     <TextBlock Grid.Row="3"
                                                Name="GeocodeStatusText"
+                                               Margin="20,5,20,0"
+                                               Foreground="White"
+                                               Text=""/>
+                                    <TextBlock Grid.Row="4"
+                                               Name="RealtimeStatusText"
                                                Margin="20,5,20,0"
                                                Foreground="White"
                                                Text=""/>

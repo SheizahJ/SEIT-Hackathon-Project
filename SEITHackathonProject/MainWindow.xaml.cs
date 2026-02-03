@@ -67,6 +67,9 @@ namespace SEITHackathonProject
         private readonly Dictionary<string, GeoPoint> geocodeCache = new Dictionary<string, GeoPoint>(StringComparer.OrdinalIgnoreCase);
         private readonly SemaphoreSlim geocodeLock = new SemaphoreSlim(1, 1);
         private DateTime lastGeocodeUtc = DateTime.MinValue;
+        private CancellationTokenSource originGeocodeCts;
+        private CancellationTokenSource destinationGeocodeCts;
+        private DateTime lastRealtimeUtc = DateTime.MinValue;
 
 
         public MainWindow()
@@ -345,9 +348,11 @@ namespace SEITHackathonProject
                 lastTripUpdates = ExtractTripUpdates(tripFeed);
                 lastVehiclePositions = ExtractVehiclePositions(vehicleFeed);
                 lastAlerts = ExtractAlerts(alertFeed);
+                lastRealtimeUtc = DateTime.UtcNow;
 
                 UpdateVehicleMarkers(lastVehiclePositions);
                 UpdateAlertNotice(lastAlerts);
+                UpdateRealtimeStatus();
                 UpdateCurrentRouteUi();
             }
             finally
@@ -466,6 +471,22 @@ namespace SEITHackathonProject
             }
 
             return maxDelay;
+        }
+
+        private void UpdateRealtimeStatus()
+        {
+            if (RealtimeStatusText == null)
+            {
+                return;
+            }
+
+            var vehicleCount = lastVehiclePositions?.Count ?? 0;
+            var tripCount = lastTripUpdates?.Count ?? 0;
+            var updatedLocal = lastRealtimeUtc == DateTime.MinValue
+                ? "unknown"
+                : lastRealtimeUtc.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+
+            RealtimeStatusText.Text = $"Live vehicles: {vehicleCount} • Trip updates: {tripCount} • Updated {updatedLocal}";
         }
 
         private void UpdateCurrentRouteUi()
@@ -812,6 +833,7 @@ namespace SEITHackathonProject
             }
             comboBox.IsDropDownOpen = true;
             UpdateGeocodeHint(filterText, suggestions.Count);
+            ScheduleGeocodeLookup(comboBox, filterText, suggestions.Count);
             UpdateRoutesForStopSelection();
             UpdateTripSuggestions();
         }
@@ -829,6 +851,7 @@ namespace SEITHackathonProject
                 comboBox.IsDropDownOpen = false;
             }
             UpdateGeocodeHint(comboBox.Text ?? string.Empty, 1);
+            CancelPendingGeocode(comboBox);
             UpdateRoutesForStopSelection();
             UpdateTripSuggestions();
         }
@@ -1500,6 +1523,103 @@ namespace SEITHackathonProject
             {
                 GeocodeStatusText.Text = string.Empty;
             }
+        }
+
+        private void ScheduleGeocodeLookup(ComboBox comboBox, string filterText, int suggestionCount)
+        {
+            if (comboBox == null)
+            {
+                return;
+            }
+
+            var trimmed = (filterText ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(trimmed) || trimmed.Length < 5 || suggestionCount > 0)
+            {
+                CancelPendingGeocode(comboBox);
+                return;
+            }
+
+            var cts = CreateGeocodeCts(comboBox);
+            var token = cts.Token;
+            _ = RunGeocodeLookupAsync(comboBox, trimmed, token);
+        }
+
+        private async Task RunGeocodeLookupAsync(ComboBox comboBox, string filterText, CancellationToken token)
+        {
+            try
+            {
+                await Task.Delay(600, token);
+            }
+            catch (TaskCanceledException)
+            {
+                return;
+            }
+
+            if (token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            var currentText = (comboBox.Text ?? string.Empty).Trim();
+            if (!currentText.Equals(filterText, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            GeocodeStatusText.Text = "Searching address...";
+            var resolved = await TryResolveStopFromAddressAsync(comboBox);
+            if (resolved)
+            {
+                UpdateRoutesForStopSelection();
+                UpdateTripSuggestions();
+                return;
+            }
+
+            if (GeocodeStatusText.Text == "Searching address...")
+            {
+                GeocodeStatusText.Text = "Address not found in Durham Region.";
+            }
+        }
+
+        private void CancelPendingGeocode(ComboBox comboBox)
+        {
+            var cts = GetGeocodeCts(comboBox);
+            if (cts == null)
+            {
+                return;
+            }
+
+            cts.Cancel();
+        }
+
+        private CancellationTokenSource CreateGeocodeCts(ComboBox comboBox)
+        {
+            CancelPendingGeocode(comboBox);
+            var cts = new CancellationTokenSource();
+            if (comboBox == OriginStopBox)
+            {
+                originGeocodeCts = cts;
+            }
+            else if (comboBox == DestinationStopBox)
+            {
+                destinationGeocodeCts = cts;
+            }
+            return cts;
+        }
+
+        private CancellationTokenSource GetGeocodeCts(ComboBox comboBox)
+        {
+            if (comboBox == OriginStopBox)
+            {
+                return originGeocodeCts;
+            }
+
+            if (comboBox == DestinationStopBox)
+            {
+                return destinationGeocodeCts;
+            }
+
+            return null;
         }
 
         private void UpdateTripSuggestions()
