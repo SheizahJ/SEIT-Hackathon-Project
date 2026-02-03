@@ -38,7 +38,7 @@ Suggested Routes view (alternative trips):
 
 ![Suggested Routes view](SEITHackathonProject/images/A.png)
 
-(SEITHackathonProject/images/C.png)
+![Map View](SEITHackathonProject/images/C.png)
 
 ## How It Works (Architecture)
 
