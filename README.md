@@ -1,76 +1,74 @@
-# SEIT Hackathon Project (DRT)
+# SEIT Hackathon Project — Durham Region Transit (DRT)
 
-WPF (.NET Framework) map application that visualizes Durham Region Transit
-stops and live vehicle positions, with From/To stop selection, real-time
-alerts, and schedule-aware trip suggestions.
+A WPF (.NET Framework) desktop app that visualizes Durham Region Transit in
+real time, combines static GTFS with GTFS‑Realtime, and helps users discover
+routes between two places or stops with delay awareness.
 
-## Demo Summary
+## Problem Statement
 
-- Map with DRT stops and live vehicles
-- Stop clustering by zoom level to reduce clutter
-- Vehicle markers colored by route with route/headsign tooltips
-- From/To stop search with smart autocomplete
-- Address search (auto-lookup and Enter-to-search) resolved to nearest stop
-- Route dropdown filtered by chosen From/To stops
-- Schedule-based trip suggestions with real-time delay adjustments
-- Alert banner with realtime delay warnings
+Durham Region riders often have to switch between schedule PDFs, static maps,
+and generic trip planners to understand what is running **right now** and
+whether delays affect their trip. This project aims to provide a single,
+fast, map‑centric view that answers:
 
-## Architecture Overview
+- Where are buses currently?
+- Are there active alerts or delays?
+- Which routes can take me from A to B today?
 
-The app is a single-window WPF UI (`MainWindow.xaml`) and code-behind
-(`MainWindow.xaml.cs`) backed by local static GTFS data and live GTFS-RT feeds:
+## Key Features
+
+- **Live map view**: OpenStreetMap tiles with real‑time vehicle markers.
+- **Stop clustering**: Dynamic clustering based on zoom to reduce clutter.
+- **Route‑colored vehicles**: Each vehicle is colored by route; tooltips show
+  route name and trip headsign when available.
+- **Smart From/To search**: Autocomplete across stop name/description/code,
+  ranked by match quality and route density.
+- **Address search**: Enter an address and the app resolves it to the nearest
+  DRT stop (Nominatim, no API key required).
+- **Trip suggestions**: Schedule‑based options with real‑time delay adjustments.
+- **Alerts**: Banner shows active transit alerts and delay severity.
+
+## How It Works (Architecture)
 
 ```
-UI (WPF)
-  -> GMap.NET (OpenStreetMap tiles)
-  -> Stop/Route search + results panels
+UI (WPF) ──> GMap.NET (OpenStreetMap tiles)
+          └─> Search + Trip Panels
+
 Data
-  -> GTFS Static: stops, routes, trips, stop_times, calendar
-  -> GTFS-RT: TripUpdates, VehiclePositions, Alerts
+  ├─ GTFS Static: stops, routes, trips, stop_times, calendar
+  └─ GTFS-RT: TripUpdates, VehiclePositions, Alerts
 ```
 
 ### Data Pipeline
 
-1. **Static GTFS load** on startup
-   - `stops.txt` => stop locations
-   - `routes.txt` + `trips.txt` => route metadata + headsigns
-   - `stop_times.txt` => stop-to-route indexes + trip timing
-   - `calendar.txt` + `calendar_dates.txt` => service-day filtering
-2. **Realtime refresh** every 30 seconds
+1. **Static GTFS load (startup)**
+   - `stops.txt` → stop locations
+   - `routes.txt` + `trips.txt` → route metadata and headsigns
+   - `stop_times.txt` → stop‑to‑route index and trip timing
+   - `calendar.txt` + `calendar_dates.txt` → service‑day filtering
+2. **Realtime refresh (every 30s)**
    - Trip updates (delays)
-   - Vehicle positions (live bus dots)
+   - Vehicle positions (live buses)
    - Alerts (banner)
 
-### Core Components
+### Trip Suggestion Logic (High‑Level)
 
-- **Stop search and autocomplete**
-  - Multi-token search across stop name, stop description, stop code, stop ID
-  - Suggestions ranked by text match and route density
-  - Geocoding fallback when no stop matches
-- **Trip suggestion logic**
-  - Finds trips that contain both origin and destination stops in order
-  - Applies calendar filters (active service only)
-  - Adjusts departure/arrival using realtime delay
-  - Scores by soonest departure (with next-day wrap)
-- **Map clustering**
-  - Dynamic grid-based clustering driven by zoom
-  - Single stops shown as red dots, clusters show count
-- **Route/vehicle display**
-  - Route name composed from short + long name when meaningful
-  - Vehicle markers colored deterministically by route ID
-  - Tooltips show route name and trip headsign when available
+- Finds trips containing both origin and destination stops in order.
+- Applies service calendar rules for **today**.
+- Adjusts departure/arrival times with realtime delay.
+- Ranks by soonest valid departure (with next‑day wrap).
 
 ## Data Sources
 
-GTFS-RT (live):
-- Trip Updates: https://drtonline.durhamregiontransit.com/gtfsrealtime/TripUpdates
-- Vehicle Positions: https://drtonline.durhamregiontransit.com/gtfsrealtime/VehiclePositions
-- Alerts: https://maps.durham.ca/OpenDataGTFS/alerts.pb
+**GTFS‑Realtime (live):**
+- Trip Updates: `https://drtonline.durhamregiontransit.com/gtfsrealtime/TripUpdates`
+- Vehicle Positions: `https://drtonline.durhamregiontransit.com/gtfsrealtime/VehiclePositions`
+- Alerts: `https://maps.durham.ca/OpenDataGTFS/alerts.pb`
 
-Static GTFS (local):
+**GTFS Static (local):**
 - `SEITHackathonProject/Data/GTFS_DRT_Static/`
 
-## Build and Run
+## Build & Run
 
 1. Open `SEITHackathonProject.sln` in Visual Studio.
 2. Restore NuGet packages if prompted.
@@ -81,39 +79,38 @@ Static GTFS (local):
 
 ### Address Search (Geocoding)
 
-- Uses Nominatim (OpenStreetMap), no API key required.
-- Input is scoped to Durham Region, Ontario, Canada.
-- If no stop matches are found, an address lookup is triggered automatically.
+- Uses Nominatim (OpenStreetMap), **no API key** required.
+- Automatically scoped to Durham Region, Ontario, Canada.
+- Auto‑lookup triggers when no stop matches are found.
 - Press Enter to force a lookup at any time.
 
-### Real-Time Status
+### Real‑Time Visibility
 
-- Vehicle positions are only shown for trips that are currently publishing
-  location data via the GTFS-RT feed.
-- The UI shows last update time, live vehicle count, and trip update count.
+- Vehicle dots only appear for trips publishing GTFS‑RT vehicle positions.
+- UI shows last update time + live counts for transparency.
 
-### Trip Suggestions
+### Known Limitations
 
-- Single-route trip suggestions between From/To stops
-- Active service filtering based on today's service calendar
-- Delay adjustments applied using the current GTFS-RT trip updates
-
-## Limitations
-
-- **Live vehicles** only appear if DRT publishes a vehicle position for that bus.
-- **Address search** depends on Nominatim accuracy and rate limits.
-- **Routing** currently shows single-route trips (no transfers).
-- **Static data** must be updated manually if the GTFS feed changes.
+- **Live vehicles** depend entirely on GTFS‑RT feed coverage.
+- **Routing** is currently single‑route (no transfers).
+- **Static GTFS** must be updated manually when the agency updates feeds.
 
 ## Troubleshooting
 
-- If stops are missing, verify `Data/GTFS_DRT_Static/` exists and rebuild.
-- If live vehicles do not appear, verify internet access and GTFS-RT URLs.
-- If search results feel incomplete, try adding a street name + city or press Enter.
+- Missing stops: verify `Data/GTFS_DRT_Static/` exists and rebuild.
+- No live vehicles: confirm internet access and GTFS‑RT URLs.
+- Address not found: add street + city (e.g., "Simcoe St N Oshawa") or press Enter.
 
-## Roadmap Ideas
+## Roadmap (Suggested)
 
-- Multi-leg routing (with transfers)
+- Transfer‑aware routing
 - Address autocomplete suggestions
-- Automatic GTFS static refresh
+- Auto‑refresh of static GTFS feeds
 - Vehicle direction arrows and route polylines
+
+## Tech Stack
+
+- WPF (.NET Framework)
+- GMap.NET
+- Google.Protobuf + GTFS‑RT bindings
+- OpenStreetMap / Nominatim
