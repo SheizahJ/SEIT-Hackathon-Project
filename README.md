@@ -32,15 +32,13 @@ fast, map‑centric view that answers:
 
 Current Route view (stop-based trip suggestions):
 
-![Current Route view](SEITHackathonProject/images/A.png)
+![Current Route view](SEITHackathonProject/images/B.png)
 
 Suggested Routes view (alternative trips):
 
-![Suggested Routes view](SEITHackathonProject/images/B.png)
+![Suggested Routes view](SEITHackathonProject/images/A.png)
 
-Map + vehicle markers (clustered stops and tooltips):
-
-![Map view](SEITHackathonProject/images/C.png)
+(SEITHackathonProject/images/C.png)
 
 ## How It Works (Architecture)
 
