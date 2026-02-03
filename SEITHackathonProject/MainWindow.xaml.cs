@@ -64,6 +64,8 @@ namespace SEITHackathonProject
         private readonly Dictionary<string, List<StopTimeEntry>> tripStopTimes = new Dictionary<string, List<StopTimeEntry>>();
         private readonly Dictionary<string, string> tripIdToServiceId = new Dictionary<string, string>();
         private readonly HashSet<string> activeServiceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, Stop> stopsById = new Dictionary<string, Stop>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, List<StopTripEntry>> stopToTripEntries = new Dictionary<string, List<StopTripEntry>>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, GeoPoint> geocodeCache = new Dictionary<string, GeoPoint>(StringComparer.OrdinalIgnoreCase);
         private readonly SemaphoreSlim geocodeLock = new SemaphoreSlim(1, 1);
         private DateTime lastGeocodeUtc = DateTime.MinValue;
@@ -513,6 +515,7 @@ namespace SEITHackathonProject
             routes.Clear();
             stops.AddRange(LoadStops(stopsPath));
             routes.AddRange(LoadRoutes(routesPath));
+            BuildStopsIndex();
             BuildRouteIndex();
             LoadTripHeadsigns(tripsPath);
             LoadTripsForRoutes(tripsPath);
@@ -620,6 +623,12 @@ namespace SEITHackathonProject
             public int StopSequence { get; set; }
         }
 
+        public class StopTripEntry
+        {
+            public string TripId { get; set; }
+            public StopTimeEntry StopTime { get; set; }
+        }
+
         public class TripOption
         {
             public string RouteId { get; set; }
@@ -627,6 +636,7 @@ namespace SEITHackathonProject
             public int ArrivalSeconds { get; set; }
             public int SortScore { get; set; }
             public string StatusText { get; set; }
+            public int Transfers { get; set; }
         }
 
         public class Route
@@ -1096,6 +1106,7 @@ namespace SEITHackathonProject
         {
             stopToRouteIds.Clear();
             tripStopTimes.Clear();
+            stopToTripEntries.Clear();
             if (!File.Exists(stopTimesPath))
             {
                 return;
@@ -1140,12 +1151,24 @@ namespace SEITHackathonProject
                             && TryParseGtfsTime(departureTime, out var departureSeconds)
                             && int.TryParse(stopSequence, NumberStyles.Integer, CultureInfo.InvariantCulture, out var sequence))
                         {
-                            list.Add(new StopTimeEntry
+                            var entry = new StopTimeEntry
                             {
                                 StopId = stopId,
                                 ArrivalSeconds = arrivalSeconds,
                                 DepartureSeconds = departureSeconds,
                                 StopSequence = sequence
+                            };
+                            list.Add(entry);
+
+                            if (!stopToTripEntries.TryGetValue(stopId, out var tripEntries))
+                            {
+                                tripEntries = new List<StopTripEntry>();
+                                stopToTripEntries[stopId] = tripEntries;
+                            }
+                            tripEntries.Add(new StopTripEntry
+                            {
+                                TripId = tripId,
+                                StopTime = entry
                             });
                         }
 
@@ -1166,6 +1189,18 @@ namespace SEITHackathonProject
             catch
             {
                 // Ignore failures; route filtering will be limited.
+            }
+        }
+
+        private void BuildStopsIndex()
+        {
+            stopsById.Clear();
+            foreach (var stop in stops)
+            {
+                if (!string.IsNullOrWhiteSpace(stop.StopId) && !stopsById.ContainsKey(stop.StopId))
+                {
+                    stopsById[stop.StopId] = stop;
+                }
             }
         }
 
@@ -1642,11 +1677,34 @@ namespace SEITHackathonProject
                 return;
             }
 
-            var options = BuildTripOptions(originStopId, destinationStopId);
+            var options = BuildTripOptions(originStopId, destinationStopId, false, out var usedTransfer);
+            var usedScheduleFallback = false;
+            if (options.Count == 0 && activeServiceIds.Count > 0)
+            {
+                options = BuildTripOptions(originStopId, destinationStopId, true, out usedTransfer);
+                usedScheduleFallback = options.Count > 0;
+            }
             if (options.Count == 0)
             {
                 CurrentRouteInfo.Items.Add(new TextBlock { Text = "No trips found for selected stops." });
                 return;
+            }
+
+            if (usedScheduleFallback)
+            {
+                CurrentRouteInfo.Items.Add(new TextBlock
+                {
+                    Text = "No active service found for today. Showing scheduled trips.",
+                    Foreground = Brushes.White
+                });
+            }
+            if (usedTransfer)
+            {
+                CurrentRouteInfo.Items.Add(new TextBlock
+                {
+                    Text = "Includes 1 transfer.",
+                    Foreground = Brushes.White
+                });
             }
 
             var bestOptions = options.Take(3).ToList();
@@ -1698,7 +1756,21 @@ namespace SEITHackathonProject
             }
         }
 
-        private List<TripOption> BuildTripOptions(string originStopId, string destinationStopId)
+        private List<TripOption> BuildTripOptions(string originStopId, string destinationStopId, bool includeInactiveServices, out bool usedTransfer)
+        {
+            usedTransfer = false;
+            var direct = BuildDirectTripOptions(originStopId, destinationStopId, includeInactiveServices);
+            if (direct.Count > 0)
+            {
+                return direct;
+            }
+
+            var transfer = BuildTransferTripOptions(originStopId, destinationStopId, includeInactiveServices);
+            usedTransfer = transfer.Count > 0;
+            return transfer;
+        }
+
+        private List<TripOption> BuildDirectTripOptions(string originStopId, string destinationStopId, bool includeInactiveServices)
         {
             var results = new List<TripOption>();
             var nowSeconds = (int)DateTime.Now.TimeOfDay.TotalSeconds;
@@ -1708,7 +1780,7 @@ namespace SEITHackathonProject
             {
                 var tripId = trip.Key;
                 var entries = trip.Value;
-                if (activeServiceIds.Count > 0 && tripIdToServiceId.TryGetValue(tripId, out var serviceId))
+                if (!includeInactiveServices && activeServiceIds.Count > 0 && tripIdToServiceId.TryGetValue(tripId, out var serviceId))
                 {
                     if (!activeServiceIds.Contains(serviceId))
                     {
@@ -1748,8 +1820,122 @@ namespace SEITHackathonProject
                     DepartureSeconds = departure,
                     ArrivalSeconds = arrival,
                     SortScore = timeScore,
-                    StatusText = status
+                    StatusText = status,
+                    Transfers = 0
                 });
+            }
+
+            return results
+                .OrderBy(option => option.SortScore)
+                .ToList();
+        }
+
+        private List<TripOption> BuildTransferTripOptions(string originStopId, string destinationStopId, bool includeInactiveServices)
+        {
+            var results = new List<TripOption>();
+            var nowSeconds = (int)DateTime.Now.TimeOfDay.TotalSeconds;
+            var delayMap = BuildTripDelayMap(lastTripUpdates);
+
+            foreach (var trip in tripStopTimes)
+            {
+                var tripId = trip.Key;
+                var entries = trip.Value;
+                if (!includeInactiveServices && activeServiceIds.Count > 0 && tripIdToServiceId.TryGetValue(tripId, out var serviceId))
+                {
+                    if (!activeServiceIds.Contains(serviceId))
+                    {
+                        continue;
+                    }
+                }
+
+                var origin = entries.FirstOrDefault(entry => entry.StopId == originStopId);
+                if (origin == null)
+                {
+                    continue;
+                }
+
+                var delay1 = delayMap.TryGetValue(tripId, out var delayFirst) ? delayFirst : 0;
+                var depart1 = origin.DepartureSeconds + delay1;
+
+                foreach (var transferStop in entries.Where(entry => entry.StopSequence > origin.StopSequence))
+                {
+                    var transferStopId = transferStop.StopId;
+                    if (string.IsNullOrWhiteSpace(transferStopId) || transferStopId == destinationStopId)
+                    {
+                        continue;
+                    }
+
+                    if (!stopToTripEntries.TryGetValue(transferStopId, out var transferTrips))
+                    {
+                        continue;
+                    }
+
+                    var arriveTransfer = transferStop.ArrivalSeconds + delay1;
+
+                    foreach (var secondTrip in transferTrips)
+                    {
+                        var secondTripId = secondTrip.TripId;
+                        if (string.IsNullOrWhiteSpace(secondTripId) || secondTripId.Equals(tripId, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        if (!includeInactiveServices && activeServiceIds.Count > 0 && tripIdToServiceId.TryGetValue(secondTripId, out var serviceId2))
+                        {
+                            if (!activeServiceIds.Contains(serviceId2))
+                            {
+                                continue;
+                            }
+                        }
+
+                        if (!tripStopTimes.TryGetValue(secondTripId, out var secondEntries))
+                        {
+                            continue;
+                        }
+
+                        var transferEntry = secondTrip.StopTime;
+                        var destination = secondEntries.FirstOrDefault(entry => entry.StopId == destinationStopId);
+                        if (destination == null || destination.StopSequence <= transferEntry.StopSequence)
+                        {
+                            continue;
+                        }
+
+                        var delay2 = delayMap.TryGetValue(secondTripId, out var delaySecond) ? delaySecond : 0;
+                        var depart2 = transferEntry.DepartureSeconds + delay2;
+                        if (depart2 < arriveTransfer)
+                        {
+                            continue;
+                        }
+
+                        var arrival2 = destination.ArrivalSeconds + delay2;
+                        var duration = Math.Max(0, arrival2 - depart1);
+
+                        if (!tripIdToRouteId.TryGetValue(tripId, out var routeId1)
+                            || !tripIdToRouteId.TryGetValue(secondTripId, out var routeId2))
+                        {
+                            continue;
+                        }
+
+                        var routeName1 = GetRouteDisplayName(routeId1);
+                        var routeName2 = GetRouteDisplayName(routeId2);
+                        var transferName = stopsById.TryGetValue(transferStopId, out var stop)
+                            ? stop.StopName
+                            : transferStopId;
+
+                        var status = $"{routeName1} → {routeName2} • Departs {FormatTime(depart1)} • Arrives {FormatTime(arrival2)} • {FormatDuration(duration)} • Transfer at {transferName}";
+
+                        var timeScore = depart1 >= nowSeconds ? depart1 : depart1 + 24 * 3600;
+                        results.Add(new TripOption
+                        {
+                            RouteId = routeId1,
+                            DepartureSeconds = depart1,
+                            ArrivalSeconds = arrival2,
+                            SortScore = timeScore,
+                            StatusText = status,
+                            Transfers = 1
+                        });
+                    }
+                }
             }
 
             return results
