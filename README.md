@@ -28,6 +28,20 @@ fast, map‑centric view that answers:
 - **Trip suggestions**: Schedule‑based options with real‑time delay adjustments.
 - **Alerts**: Banner shows active transit alerts and delay severity.
 
+## Screenshots
+
+Current Route view (stop-based trip suggestions):
+
+![Current Route view](SEITHackathonProject/images/A.png)
+
+Suggested Routes view (alternative trips):
+
+![Suggested Routes view](SEITHackathonProject/images/B.png)
+
+Map + vehicle markers (clustered stops and tooltips):
+
+![Map view](SEITHackathonProject/images/C.png)
+
 ## How It Works (Architecture)
 
 ```
@@ -96,6 +110,7 @@ Data
 - **Static GTFS** must be updated manually when the agency updates feeds.
 
 ## Troubleshooting
+
 
 - Missing stops: verify `Data/GTFS_DRT_Static/` exists and rebuild.
 - No live vehicles: confirm internet access and GTFS‑RT URLs.
