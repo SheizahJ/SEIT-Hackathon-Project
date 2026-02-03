@@ -36,6 +36,7 @@ Current Route view (stop-based trip suggestions):
 
 
 Suggested Routes view (alternative trips):
+
 <img src="SEITHackathonProject/images/B.png" width="420" />
 
 ## How It Works (Architecture)
