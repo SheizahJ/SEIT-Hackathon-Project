@@ -52,7 +52,11 @@
             </Grid>
 
             <Grid Grid.Row="1">
-                <TextBlock TextAlignment="Center" VerticalAlignment="Center" Foreground="White" TextWrapping="Wrap">
+                <TextBlock x:Name="AlertNoticeText"
+                           TextAlignment="Center"
+                           VerticalAlignment="Center"
+                           Foreground="White"
+                           TextWrapping="Wrap">
                     A delay in transit has impacted your current route. See SUGGESTED ROUTES for alternatives routes.
                 </TextBlock>
             </Grid>
@@ -100,13 +104,68 @@
                         <GroupBox Name="CurrentRouteMenu" Visibility="Visible">
                             <Grid>
                                 <Grid.RowDefinitions>
-                                    <RowDefinition Height="80" />
+                                    <RowDefinition Height="Auto" />
                                     <RowDefinition Height="1*" />
                                 </Grid.RowDefinitions>
 
-                                <Grid Grid.Row="0">
-                                    <Label HorizontalAlignment="Center" Foreground="White" Margin="0,0,0,50">Select your Destination</Label>
-                                    <ComboBox Name="RoutesDropDown" Margin="20,30,20,20" SelectionChanged="RoutesDropDown_SelectionChanged"></ComboBox>
+                                <Grid Grid.Row="0" Margin="0,0,0,10">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+
+                                    <Grid Grid.Row="0" Margin="20,5,20,0">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Label Grid.Row="0" Foreground="White">From (Durham Region)</Label>
+                                        <ComboBox Grid.Row="1"
+                                                  Name="OriginStopBox"
+                                                  IsEditable="True"
+                                                  IsTextSearchEnabled="False"
+                                                  StaysOpenOnEdit="True"
+                                                  DisplayMemberPath="DisplayName"
+                                                  SelectedValuePath="StopId"
+                                                  KeyUp="StopBox_KeyUp"
+                                                  SelectionChanged="StopBox_SelectionChanged" />
+                                    </Grid>
+
+                                    <Grid Grid.Row="1" Margin="20,5,20,0">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Label Grid.Row="0" Foreground="White">To (Durham Region)</Label>
+                                        <ComboBox Grid.Row="1"
+                                                  Name="DestinationStopBox"
+                                                  IsEditable="True"
+                                                  IsTextSearchEnabled="False"
+                                                  StaysOpenOnEdit="True"
+                                                  DisplayMemberPath="DisplayName"
+                                                  SelectedValuePath="StopId"
+                                                  KeyUp="StopBox_KeyUp"
+                                                  SelectionChanged="StopBox_SelectionChanged" />
+                                    </Grid>
+
+                                    <Grid Grid.Row="2" Margin="20,5,20,0">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Label Grid.Row="0" Foreground="White">Select Route</Label>
+                                        <ComboBox Grid.Row="1"
+                                                  Name="RoutesDropDown"
+                                                  SelectionChanged="RoutesDropDown_SelectionChanged" />
+                                    </Grid>
+
+                                    <TextBlock Grid.Row="3"
+                                               Name="GeocodeStatusText"
+                                               Margin="20,5,20,0"
+                                               Foreground="White"
+                                               Text=""/>
                                 </Grid>
 
                                 <Grid Grid.Row="1">
