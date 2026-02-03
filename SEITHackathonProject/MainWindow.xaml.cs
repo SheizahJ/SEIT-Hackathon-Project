@@ -39,6 +39,7 @@ namespace SEITHackathonProject
         private static readonly Uri VehiclePositionsUrl = new Uri("https://drtonline.durhamregiontransit.com/gtfsrealtime/VehiclePositions");
         private static readonly Uri AlertsUrl = new Uri("https://maps.durham.ca/OpenDataGTFS/alerts.pb");
         private static readonly TimeSpan RealtimeRefreshInterval = TimeSpan.FromSeconds(30);
+        private const bool useRealtimeNetwork = false;
 
         // variables
         private bool routeInfoShown = true;
@@ -72,6 +73,18 @@ namespace SEITHackathonProject
         private CancellationTokenSource originGeocodeCts;
         private CancellationTokenSource destinationGeocodeCts;
         private DateTime lastRealtimeUtc = DateTime.MinValue;
+        private DateTime? lastTripFeedTimestampUtc;
+        private DateTime? lastVehicleFeedTimestampUtc;
+        private bool lastTripFallbackUsed;
+        private bool lastVehicleFallbackUsed;
+        private bool lastAlertFallbackUsed;
+        private const int MaxDepartureWindowSeconds = 3 * 60 * 60;
+        private const int MaxDepartureWindowSecondsSchedule = 24 * 60 * 60;
+        private const int MaxTransferWaitSeconds = 60 * 60;
+        private const int MaxTripDurationSeconds = 3 * 60 * 60;
+        private const int MaxVehicleAgeSeconds = 5 * 60;
+        private const int MaxTripFeedAgeSeconds = 5 * 60;
+        private const int MaxVehicleFeedAgeSeconds = 5 * 60;
 
 
         public MainWindow()
@@ -305,16 +318,29 @@ namespace SEITHackathonProject
             return alerts;
         }
 
-        private async Task<FeedMessage> FetchFeedMessageAsync(Uri feedUrl, string fallbackPath)
+        private sealed class FeedFetchResult
         {
-            try
+            public FeedMessage Message { get; set; }
+            public bool UsedFallback { get; set; }
+        }
+
+        private async Task<FeedFetchResult> FetchFeedMessageAsync(Uri feedUrl, string fallbackPath)
+        {
+            if (useRealtimeNetwork)
             {
-                byte[] fileContent = await httpClient.GetByteArrayAsync(feedUrl);
-                return FeedMessage.Parser.ParseFrom(fileContent);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Realtime fetch failed: {ex.Message}");
+                try
+                {
+                    byte[] fileContent = await httpClient.GetByteArrayAsync(feedUrl);
+                    return new FeedFetchResult
+                    {
+                        Message = FeedMessage.Parser.ParseFrom(fileContent),
+                        UsedFallback = false
+                    };
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Realtime fetch failed: {ex.Message}");
+                }
             }
 
             if (!string.IsNullOrWhiteSpace(fallbackPath) && File.Exists(fallbackPath))
@@ -322,7 +348,11 @@ namespace SEITHackathonProject
                 try
                 {
                     byte[] fallbackContent = File.ReadAllBytes(fallbackPath);
-                    return FeedMessage.Parser.ParseFrom(fallbackContent);
+                    return new FeedFetchResult
+                    {
+                        Message = FeedMessage.Parser.ParseFrom(fallbackContent),
+                        UsedFallback = true
+                    };
                 }
                 catch (Exception ex)
                 {
@@ -330,7 +360,7 @@ namespace SEITHackathonProject
                 }
             }
 
-            return null;
+            return new FeedFetchResult();
         }
 
         private async Task RefreshRealtimeAsync()
@@ -343,14 +373,20 @@ namespace SEITHackathonProject
             realtimeRefreshing = true;
             try
             {
-                var tripFeed = await FetchFeedMessageAsync(TripUpdatesUrl, $@"{rtDataPath}\TripUpdates");
-                var vehicleFeed = await FetchFeedMessageAsync(VehiclePositionsUrl, $@"{rtDataPath}\VehiclePositions");
-                var alertFeed = await FetchFeedMessageAsync(AlertsUrl, $@"{rtDataPath}\alerts.pb");
+                var tripResult = await FetchFeedMessageAsync(TripUpdatesUrl, $@"{rtDataPath}\TripUpdates");
+                var vehicleResult = await FetchFeedMessageAsync(VehiclePositionsUrl, $@"{rtDataPath}\VehiclePositions");
+                var alertResult = await FetchFeedMessageAsync(AlertsUrl, $@"{rtDataPath}\alerts.pb");
 
-                lastTripUpdates = ExtractTripUpdates(tripFeed);
-                lastVehiclePositions = ExtractVehiclePositions(vehicleFeed);
-                lastAlerts = ExtractAlerts(alertFeed);
+                lastTripFallbackUsed = tripResult.UsedFallback;
+                lastVehicleFallbackUsed = vehicleResult.UsedFallback;
+                lastAlertFallbackUsed = alertResult.UsedFallback;
+
+                lastTripUpdates = ExtractTripUpdates(tripResult.Message);
+                lastVehiclePositions = ExtractVehiclePositions(vehicleResult.Message);
+                lastAlerts = ExtractAlerts(alertResult.Message);
                 lastRealtimeUtc = DateTime.UtcNow;
+                lastTripFeedTimestampUtc = TryGetFeedTimestampUtc(tripResult.Message);
+                lastVehicleFeedTimestampUtc = TryGetFeedTimestampUtc(vehicleResult.Message);
 
                 UpdateVehicleMarkers(lastVehiclePositions);
                 UpdateAlertNotice(lastAlerts);
@@ -379,11 +415,28 @@ namespace SEITHackathonProject
             }
             vehicleMarkers.Clear();
 
+            var vehicleFeedFresh = IsVehicleFeedFresh();
             foreach (var vehicle in vehiclePositions)
             {
                 if (vehicle?.Position == null)
                 {
                     continue;
+                }
+
+                if (vehicleFeedFresh && vehicle.Timestamp > 0)
+                {
+                    try
+                    {
+                        var ts = DateTimeOffset.FromUnixTimeSeconds((long)vehicle.Timestamp).UtcDateTime;
+                        if ((DateTime.UtcNow - ts).TotalSeconds > MaxVehicleAgeSeconds)
+                        {
+                            continue;
+                        }
+                    }
+                    catch
+                    {
+                        // If timestamp is invalid, keep the vehicle.
+                    }
                 }
 
                 var routeId = vehicle.Trip?.RouteId;
@@ -400,6 +453,10 @@ namespace SEITHackathonProject
                 {
                     tooltipText = $"{routeName}\n{headsign}";
                 }
+                if (!vehicleFeedFresh)
+                {
+                    tooltipText = $"{tooltipText}\n(stale feed)";
+                }
 
                 var marker = new GMapMarker(new PointLatLng(vehicle.Position.Latitude, vehicle.Position.Longitude))
                 {
@@ -410,6 +467,7 @@ namespace SEITHackathonProject
                         Fill = GetRouteBrush(routeId),
                         Stroke = Brushes.White,
                         StrokeThickness = 1,
+                        Opacity = vehicleFeedFresh ? 1.0 : 0.4,
                         ToolTip = tooltipText
                     }
                 };
@@ -488,7 +546,43 @@ namespace SEITHackathonProject
                 ? "unknown"
                 : lastRealtimeUtc.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture);
 
-            RealtimeStatusText.Text = $"Live vehicles: {vehicleCount} • Trip updates: {tripCount} • Updated {updatedLocal}";
+            var feedTimestampUtc = lastVehicleFeedTimestampUtc ?? lastTripFeedTimestampUtc;
+            var feedAgeText = string.Empty;
+            if (feedTimestampUtc.HasValue)
+            {
+                var age = DateTime.UtcNow - feedTimestampUtc.Value;
+                if (age.TotalMinutes >= 5)
+                {
+                    feedAgeText = $" • Feed age {Math.Round(age.TotalMinutes)} min";
+                }
+            }
+
+            var fallbackText = string.Empty;
+            if (lastVehicleFallbackUsed || lastTripFallbackUsed || lastAlertFallbackUsed)
+            {
+                fallbackText = " • Using cached fallback data";
+            }
+
+            var modeText = useRealtimeNetwork ? "Live" : "Cached";
+            RealtimeStatusText.Text = $"{modeText} feed • Live vehicles: {vehicleCount} • Trip updates: {tripCount} • Updated {updatedLocal}{feedAgeText}{fallbackText}";
+        }
+
+        private static DateTime? TryGetFeedTimestampUtc(FeedMessage message)
+        {
+            if (message?.Header == null || message.Header.Timestamp == 0)
+            {
+                return null;
+            }
+
+            try
+            {
+                var unixSeconds = (long)message.Header.Timestamp;
+                return DateTimeOffset.FromUnixTimeSeconds(unixSeconds).UtcDateTime;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private void UpdateCurrentRouteUi()
@@ -661,24 +755,47 @@ namespace SEITHackathonProject
             var routeInfo = new Grid();
 
             RowDefinition row1 = new RowDefinition();
-            row1.Height = new GridLength(20);
+            row1.Height = GridLength.Auto;
             routeInfo.RowDefinitions.Add(row1);
 
             RowDefinition row2 = new RowDefinition();
-            row2.Height = new GridLength(40);
+            row2.Height = GridLength.Auto;
             routeInfo.RowDefinitions.Add(row2);
 
             // textblock
+            var titleText = GetRouteDisplayName(route.RouteId);
+            var statusText = status ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(statusText) && statusText.Contains("•"))
+            {
+                var parts = statusText.Split('•');
+                var firstPart = parts[0].Trim();
+                if (!string.IsNullOrWhiteSpace(firstPart))
+                {
+                    titleText = firstPart;
+                }
+                statusText = string.Join("•", parts.Skip(1)).Trim();
+            }
+
+            var routeColor = GetRouteBrush(route.RouteId);
             var routeName = new TextBlock
             {
-                Text = GetRouteDisplayName(route.RouteId)
+                Text = titleText,
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = routeColor,
+                TextWrapping = TextWrapping.NoWrap,
+                TextTrimming = TextTrimming.CharacterEllipsis
             };
             Grid.SetRow(routeName, 0);
             routeInfo.Children.Add(routeName);
 
             var routeStatus = new TextBlock
             {
-                Text = status
+                Text = statusText,
+                FontSize = 11,
+                Foreground = Brushes.Black,
+                TextWrapping = TextWrapping.NoWrap,
+                TextTrimming = TextTrimming.CharacterEllipsis
             };
             Grid.SetRow(routeStatus, 1);
             routeInfo.Children.Add(routeStatus);
@@ -709,6 +826,7 @@ namespace SEITHackathonProject
             else
                 TransformAnimation(InfoDownYPos);
         }
+
 
         private void RoutesDropDown_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
@@ -1677,11 +1795,13 @@ namespace SEITHackathonProject
                 return;
             }
 
-            var options = BuildTripOptions(originStopId, destinationStopId, false, out var usedTransfer);
+            var liveTripIds = BuildLiveTripIdSet();
+            var isLiveFeed = IsTripFeedLive(liveTripIds);
+            var options = BuildTripOptions(originStopId, destinationStopId, false, isLiveFeed, liveTripIds, out var usedTransfer);
             var usedScheduleFallback = false;
-            if (options.Count == 0 && activeServiceIds.Count > 0)
+            if (options.Count == 0)
             {
-                options = BuildTripOptions(originStopId, destinationStopId, true, out usedTransfer);
+                options = BuildTripOptions(originStopId, destinationStopId, true, false, liveTripIds, out usedTransfer);
                 usedScheduleFallback = options.Count > 0;
             }
             if (options.Count == 0)
@@ -1695,14 +1815,6 @@ namespace SEITHackathonProject
                 CurrentRouteInfo.Items.Add(new TextBlock
                 {
                     Text = "No active service found for today. Showing scheduled trips.",
-                    Foreground = Brushes.White
-                });
-            }
-            if (usedTransfer)
-            {
-                CurrentRouteInfo.Items.Add(new TextBlock
-                {
-                    Text = "Includes 1 transfer.",
                     Foreground = Brushes.White
                 });
             }
@@ -1721,9 +1833,9 @@ namespace SEITHackathonProject
             }
 
             var suggested = options
-                .GroupBy(option => option.RouteId, StringComparer.OrdinalIgnoreCase)
-                .Select(group => group.First())
                 .Skip(1)
+                .GroupBy(option => option.StatusText, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
                 .Take(5)
                 .ToList();
 
@@ -1732,6 +1844,25 @@ namespace SEITHackathonProject
                 if (routesById.TryGetValue(option.RouteId, out var route))
                 {
                     SuggestRouteInfo.Items.Add(CreateRouteItem(route, option.StatusText));
+                }
+            }
+            if (SuggestRouteInfo.Items.Count == 0)
+            {
+                if (bestOptions.Count == 1)
+                {
+                    var only = bestOptions[0];
+                    if (routesById.TryGetValue(only.RouteId, out var onlyRoute))
+                    {
+                        SuggestRouteInfo.Items.Add(CreateRouteItem(onlyRoute, $"{only.StatusText} • Only available"));
+                    }
+                    else
+                    {
+                        SuggestRouteInfo.Items.Add(new TextBlock { Text = $"{only.StatusText} • Only available" });
+                    }
+                }
+                else
+                {
+                    SuggestRouteInfo.Items.Add(new TextBlock { Text = "No suggested routes available." });
                 }
             }
 
@@ -1756,30 +1887,35 @@ namespace SEITHackathonProject
             }
         }
 
-        private List<TripOption> BuildTripOptions(string originStopId, string destinationStopId, bool includeInactiveServices, out bool usedTransfer)
+        private List<TripOption> BuildTripOptions(string originStopId, string destinationStopId, bool includeInactiveServices, bool requireLive, HashSet<string> liveTripIds, out bool usedTransfer)
         {
             usedTransfer = false;
-            var direct = BuildDirectTripOptions(originStopId, destinationStopId, includeInactiveServices);
+            var direct = BuildDirectTripOptions(originStopId, destinationStopId, includeInactiveServices, requireLive, liveTripIds);
             if (direct.Count > 0)
             {
                 return direct;
             }
 
-            var transfer = BuildTransferTripOptions(originStopId, destinationStopId, includeInactiveServices);
+            var transfer = BuildTransferTripOptions(originStopId, destinationStopId, includeInactiveServices, requireLive, liveTripIds);
             usedTransfer = transfer.Count > 0;
             return transfer;
         }
 
-        private List<TripOption> BuildDirectTripOptions(string originStopId, string destinationStopId, bool includeInactiveServices)
+        private List<TripOption> BuildDirectTripOptions(string originStopId, string destinationStopId, bool includeInactiveServices, bool requireLive, HashSet<string> liveTripIds)
         {
             var results = new List<TripOption>();
             var nowSeconds = (int)DateTime.Now.TimeOfDay.TotalSeconds;
+            var maxDepartureWindow = includeInactiveServices ? MaxDepartureWindowSecondsSchedule : MaxDepartureWindowSeconds;
             var delayMap = BuildTripDelayMap(lastTripUpdates);
 
             foreach (var trip in tripStopTimes)
             {
                 var tripId = trip.Key;
                 var entries = trip.Value;
+                if (requireLive && (liveTripIds == null || !liveTripIds.Contains(tripId)))
+                {
+                    continue;
+                }
                 if (!includeInactiveServices && activeServiceIds.Count > 0 && tripIdToServiceId.TryGetValue(tripId, out var serviceId))
                 {
                     if (!activeServiceIds.Contains(serviceId))
@@ -1798,6 +1934,15 @@ namespace SEITHackathonProject
                 var departure = origin.DepartureSeconds + delaySeconds;
                 var arrival = destination.ArrivalSeconds + delaySeconds;
                 var duration = Math.Max(0, arrival - departure);
+                var timeUntilDeparture = GetTimeUntilDepartureSeconds(departure, nowSeconds);
+                if (timeUntilDeparture < 0 || timeUntilDeparture > maxDepartureWindow)
+                {
+                    continue;
+                }
+                if (duration > MaxTripDurationSeconds)
+                {
+                    continue;
+                }
 
                 if (!tripIdToRouteId.TryGetValue(tripId, out var routeId))
                 {
@@ -1830,16 +1975,21 @@ namespace SEITHackathonProject
                 .ToList();
         }
 
-        private List<TripOption> BuildTransferTripOptions(string originStopId, string destinationStopId, bool includeInactiveServices)
+        private List<TripOption> BuildTransferTripOptions(string originStopId, string destinationStopId, bool includeInactiveServices, bool requireLive, HashSet<string> liveTripIds)
         {
             var results = new List<TripOption>();
             var nowSeconds = (int)DateTime.Now.TimeOfDay.TotalSeconds;
+            var maxDepartureWindow = includeInactiveServices ? MaxDepartureWindowSecondsSchedule : MaxDepartureWindowSeconds;
             var delayMap = BuildTripDelayMap(lastTripUpdates);
 
             foreach (var trip in tripStopTimes)
             {
                 var tripId = trip.Key;
                 var entries = trip.Value;
+                if (requireLive && (liveTripIds == null || !liveTripIds.Contains(tripId)))
+                {
+                    continue;
+                }
                 if (!includeInactiveServices && activeServiceIds.Count > 0 && tripIdToServiceId.TryGetValue(tripId, out var serviceId))
                 {
                     if (!activeServiceIds.Contains(serviceId))
@@ -1856,6 +2006,11 @@ namespace SEITHackathonProject
 
                 var delay1 = delayMap.TryGetValue(tripId, out var delayFirst) ? delayFirst : 0;
                 var depart1 = origin.DepartureSeconds + delay1;
+                var timeUntilDeparture = GetTimeUntilDepartureSeconds(depart1, nowSeconds);
+                if (timeUntilDeparture < 0 || timeUntilDeparture > maxDepartureWindow)
+                {
+                    continue;
+                }
 
                 foreach (var transferStop in entries.Where(entry => entry.StopSequence > origin.StopSequence))
                 {
@@ -1876,6 +2031,10 @@ namespace SEITHackathonProject
                     {
                         var secondTripId = secondTrip.TripId;
                         if (string.IsNullOrWhiteSpace(secondTripId) || secondTripId.Equals(tripId, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+                        if (requireLive && (liveTripIds == null || !liveTripIds.Contains(secondTripId)))
                         {
                             continue;
                         }
@@ -1902,13 +2061,18 @@ namespace SEITHackathonProject
 
                         var delay2 = delayMap.TryGetValue(secondTripId, out var delaySecond) ? delaySecond : 0;
                         var depart2 = transferEntry.DepartureSeconds + delay2;
-                        if (depart2 < arriveTransfer)
+                        var transferWait = depart2 - arriveTransfer;
+                        if (transferWait < 0 || transferWait > MaxTransferWaitSeconds)
                         {
                             continue;
                         }
 
                         var arrival2 = destination.ArrivalSeconds + delay2;
                         var duration = Math.Max(0, arrival2 - depart1);
+                        if (duration > MaxTripDurationSeconds)
+                        {
+                            continue;
+                        }
 
                         if (!tripIdToRouteId.TryGetValue(tripId, out var routeId1)
                             || !tripIdToRouteId.TryGetValue(secondTripId, out var routeId2))
@@ -1985,6 +2149,16 @@ namespace SEITHackathonProject
             return $"{duration.Minutes}m";
         }
 
+        private static int GetTimeUntilDepartureSeconds(int departureSeconds, int nowSeconds)
+        {
+            var until = departureSeconds - nowSeconds;
+            if (until < 0)
+            {
+                until += 24 * 3600;
+            }
+            return until;
+        }
+
         private static Dictionary<string, int> BuildTripDelayMap(List<TripUpdate> tripUpdates)
         {
             var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -2014,6 +2188,63 @@ namespace SEITHackathonProject
             }
 
             return result;
+        }
+
+        private bool IsTripFeedLive(HashSet<string> liveTripIds)
+        {
+            if (liveTripIds == null || liveTripIds.Count == 0)
+            {
+                return false;
+            }
+
+            if (lastTripFallbackUsed)
+            {
+                return false;
+            }
+
+            if (!lastTripFeedTimestampUtc.HasValue)
+            {
+                return false;
+            }
+
+            var ageSeconds = (DateTime.UtcNow - lastTripFeedTimestampUtc.Value).TotalSeconds;
+            return ageSeconds <= MaxTripFeedAgeSeconds;
+        }
+
+        private bool IsVehicleFeedFresh()
+        {
+            if (lastVehicleFallbackUsed)
+            {
+                return false;
+            }
+
+            if (!lastVehicleFeedTimestampUtc.HasValue)
+            {
+                return false;
+            }
+
+            var ageSeconds = (DateTime.UtcNow - lastVehicleFeedTimestampUtc.Value).TotalSeconds;
+            return ageSeconds <= MaxVehicleFeedAgeSeconds;
+        }
+
+        private HashSet<string> BuildLiveTripIdSet()
+        {
+            var liveTripIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (lastTripUpdates == null || lastTripUpdates.Count == 0)
+            {
+                return liveTripIds;
+            }
+
+            foreach (var update in lastTripUpdates)
+            {
+                var tripId = update?.Trip?.TripId;
+                if (!string.IsNullOrWhiteSpace(tripId))
+                {
+                    liveTripIds.Add(tripId);
+                }
+            }
+
+            return liveTripIds;
         }
 
         private void MapView_OnMapZoomChanged()
